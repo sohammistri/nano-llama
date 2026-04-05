@@ -4,8 +4,10 @@ All the generic code lives here, and all the evaluation-specific
 code lives in nanollama directory and is imported from here.
 
 Example runs:
-python -m scripts.chat_eval -a ARC-Easy
-torchrun --nproc_per_node=8 -m scripts.chat_eval -- -a ARC-Easy
+python -m scripts.chat_eval -i sft -a ARC-Easy
+torchrun --nproc_per_node=8 -m scripts.chat_eval -- -i sft -a ARC-Easy
+python -m scripts.chat_eval --hf-path meta-llama/Llama-2-7b-chat-hf -a ARC-Easy
+python -m scripts.chat_eval --hf-path meta-llama/Meta-Llama-3-8B-Instruct -a "ARC-Easy|MMLU"
 """
 
 import argparse
@@ -51,6 +53,78 @@ def run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_
         # Decode the completions as text
         prefix_length = len(encoded_prompt)
         completions = [tokenizer.decode(result_tokens[prefix_length:]) for result_tokens in results]
+        # Evaluate success criteria
+        outcomes = [task_object.evaluate(conversation, completion) for completion in completions]
+        passed = any(outcomes)
+
+        # Keep stats
+        total += 1
+        num_passed += int(passed)
+
+        # Logging (overwrite the same line in the console)
+        print(f"\r\033[KRank {ddp_rank} | {num_passed}/{total} ({100*num_passed/total:.2f}%)", end='', flush=True)
+
+    # Finish the in-place progress line with a newline before final summary
+    print()
+
+    # Aggregate results across all ranks
+    if ddp:
+        num_passed_tensor = torch.tensor([num_passed], dtype=torch.long, device=device)
+        total_tensor = torch.tensor([total], dtype=torch.long, device=device)
+        dist.all_reduce(num_passed_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_tensor, op=dist.ReduceOp.SUM)
+        num_passed = num_passed_tensor.item()
+        total = total_tensor.item()
+
+    print0("=" * 50)
+    print0(f"Final: {num_passed}/{total} ({100*num_passed/total:.2f}%)")
+
+    # Return the accuracy
+    return num_passed/total
+
+# -----------------------------------------------------------------------------
+# Generative evaluation loop for HuggingFace models (uses model.generate() instead of Engine)
+
+def run_generative_eval_hf(task_object, tokenizer, model, num_samples, max_new_tokens, temperature, top_k, max_problems=None):
+
+    ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
+    device = model.get_device()
+
+    num_problems = len(task_object) if max_problems is None else min(len(task_object), max_problems)
+
+    # Build generation kwargs for HF model.generate()
+    gen_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=(temperature > 0))
+    if temperature > 0:
+        gen_kwargs["temperature"] = temperature
+        gen_kwargs["top_k"] = top_k
+
+    eos_token_id = tokenizer._auto_tokenizer.eos_token_id
+
+    # Run the evaluation
+    num_passed, total = 0, 0
+    for i in range(ddp_rank, num_problems, ddp_world_size):
+        conversation = task_object[i]
+
+        # Tokenize the prompt using HF chat template
+        encoded_prompt = tokenizer.render_for_completion(conversation)
+        prefix_length = len(encoded_prompt)
+        input_ids = torch.tensor([encoded_prompt], dtype=torch.long, device=device)
+
+        # Generate num_samples completions using HF native generation
+        with torch.no_grad():
+            outputs = model.generate(
+                input_ids.expand(num_samples, -1),
+                eos_token_id=eos_token_id,
+                **gen_kwargs,
+            )
+
+        # Decode completions (strip prompt prefix)
+        completions = []
+        for output in outputs:
+            completion_ids = output[prefix_length:].tolist()
+            completion_text = tokenizer._auto_tokenizer.decode(completion_ids, skip_special_tokens=True)
+            completions.append(completion_text)
+
         # Evaluate success criteria
         outcomes = [task_object.evaluate(conversation, completion) for completion in completions]
         passed = any(outcomes)
@@ -156,7 +230,7 @@ def run_categorical_eval(task_object, tokenizer, model, batch_size, max_problems
 
 def run_chat_eval(task_name, model, tokenizer, engine,
                    batch_size=1, num_samples=1, max_new_tokens=512, temperature=0.0, top_k=50,
-                   max_problems=None):
+                   max_problems=None, is_hf=False):
     # Create the evaluation object
     task_module = {
         'HumanEval': HumanEval,
@@ -169,7 +243,10 @@ def run_chat_eval(task_name, model, tokenizer, engine,
     task_object = task_module()
     # Run the evaluation
     if task_object.eval_type == 'generative':
-        acc = run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_new_tokens, temperature, top_k, max_problems=max_problems)
+        if is_hf:
+            acc = run_generative_eval_hf(task_object, tokenizer, model, num_samples, max_new_tokens, temperature, top_k, max_problems=max_problems)
+        else:
+            acc = run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_new_tokens, temperature, top_k, max_problems=max_problems)
     elif task_object.eval_type == 'categorical':
         acc = run_categorical_eval(task_object, tokenizer, model, batch_size, max_problems=max_problems)
     else:
@@ -181,7 +258,8 @@ if __name__ == "__main__":
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--source', type=str, required=True, help="Source of the model: sft|rl")
+    parser.add_argument('-i', '--source', type=str, default=None, help="Source of the model: sft|rl")
+    parser.add_argument('--hf-path', type=str, default=None, help="HuggingFace model path (e.g. meta-llama/Llama-2-7b-chat-hf)")
     parser.add_argument('-a', '--task-name', type=str, default=None, help="Task name. Default = all tasks. Use | to split multiple tasks.")
     parser.add_argument('-t', '--temperature', type=float, default=0.0)
     parser.add_argument('-m', '--max-new-tokens', type=int, default=512)
@@ -194,11 +272,21 @@ if __name__ == "__main__":
     parser.add_argument('--device-type', type=str, default='', choices=['cuda', 'cpu', 'mps'], help='Device type for evaluation: cuda|cpu|mps. empty => autodetect')
     args = parser.parse_args()
 
+    # Validate: exactly one of --source or --hf-path must be provided
+    assert (args.source is not None) != (args.hf_path is not None), \
+        "Provide exactly one of --source/-i (for nanollama) or --hf-path (for HuggingFace)"
+
     device_type = autodetect_device_type() if args.device_type == "" else args.device_type
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
 
-    model, tokenizer, meta = load_model(args.source, device, phase="eval", model_tag=args.model_tag, step=args.step)
-    engine = Engine(model, tokenizer)
+    is_hf = args.hf_path is not None
+    if is_hf:
+        from nanollama.hf_utils import load_hf_model
+        model, tokenizer = load_hf_model(args.hf_path, device)
+        engine = None
+    else:
+        model, tokenizer, meta = load_model(args.source, device, phase="eval", model_tag=args.model_tag, step=args.step)
+        engine = Engine(model, tokenizer)
 
     # Get the tasks to evaluate on
     all_tasks = ['ARC-Easy', 'ARC-Challenge', 'MMLU', 'GSM8K', 'HumanEval', 'SpellingBee']
@@ -224,6 +312,7 @@ if __name__ == "__main__":
             temperature=args.temperature,
             top_k=args.top_k,
             max_problems=args.max_problems,
+            is_hf=is_hf,
         )
         results[task_name] = acc
         print0(f"{task_name} accuracy: {100 * acc:.2f}%")
@@ -242,7 +331,8 @@ if __name__ == "__main__":
             centered_mean += centered_acc
         chatcore_metric = centered_mean / len(results)
         chatcore_metric_dict = {"ChatCORE metric": chatcore_metric}
-    get_report().log(section="Chat evaluation " + args.source, data=[
+    section_name = "Chat evaluation " + (args.hf_path if is_hf else args.source)
+    get_report().log(section=section_name, data=[
         vars(args), # CLI args
         results,
         chatcore_metric_dict,

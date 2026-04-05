@@ -38,55 +38,10 @@ from nanollama.core_eval import evaluate_task
 from nanollama.dataloader import tokenizing_distributed_data_loader_bos_bestfit
 from nanollama.loss_eval import evaluate_bpb
 from nanollama.engine import Engine
+from nanollama.hf_utils import ModelWrapper, load_hf_model
 
 # -----------------------------------------------------------------------------
 # HuggingFace loading utilities
-
-class ModelWrapper:
-    """Lightweight wrapper to give HuggingFace models a nanollama-compatible interface."""
-    def __init__(self, model, max_seq_len=None):
-        self.model = model
-        self.max_seq_len = max_seq_len
-
-    def __call__(self, input_ids, targets=None, loss_reduction='mean'):
-        logits = self.model(input_ids).logits
-        if targets is None:
-            return logits
-        B, T, V = logits.shape
-        loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, V),
-            targets.view(-1),
-            ignore_index=-1,
-            reduction=loss_reduction
-        )
-        if loss_reduction == 'none':
-            loss = loss.view(B, T)
-        return loss
-
-    def get_device(self):
-        return next(self.model.parameters()).device
-
-
-def load_hf_model(hf_path: str, device):
-    """Load a HuggingFace model and tokenizer."""
-    print0(f"Loading HuggingFace model from: {hf_path}")
-    from transformers import AutoModelForCausalLM
-    model = AutoModelForCausalLM.from_pretrained(
-        hf_path,
-        torch_dtype=torch.bfloat16,
-        device_map=device,
-    )
-    model.eval()
-    # Set max_seq_len from model config, capped for eval workloads
-    if "gpt2" in hf_path:
-        max_seq_len = 1024
-    else:
-        max_seq_len = getattr(model.config, 'max_position_embeddings', 8192)
-        max_seq_len = min(max_seq_len, 8192)
-    model = ModelWrapper(model, max_seq_len=max_seq_len)
-    tokenizer = HuggingFaceTokenizer.from_pretrained(hf_path)
-    return model, tokenizer
-
 
 def get_hf_token_bytes(tokenizer, device="cpu"):
     """Compute token_bytes tensor for a HuggingFace tokenizer."""

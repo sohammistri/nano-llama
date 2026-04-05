@@ -52,10 +52,12 @@ _BOS_CANDIDATES = ["<|bos|>", "<|endoftext|>", "<|begin_of_text|>", "<s>"]
 class HuggingFaceTokenizer:
     """Light wrapper around HuggingFace Tokenizer for some utilities"""
 
-    def __init__(self, tokenizer, model_hint: str = None):
+    def __init__(self, tokenizer, model_hint: str = None, auto_tokenizer=None):
         self.tokenizer = tokenizer
         # Optional: original model path/name used to fast-path BOS token lookup
         self.model_hint = model_hint
+        # Optional: transformers AutoTokenizer for apply_chat_template support
+        self._auto_tokenizer = auto_tokenizer
 
     @classmethod
     def from_pretrained(cls, hf_path):
@@ -174,6 +176,38 @@ class HuggingFaceTokenizer:
         tokenizer_path = os.path.join(tokenizer_dir, "tokenizer.json")
         self.tokenizer.save(tokenizer_path)
         print(f"Saved tokenizer to {tokenizer_path}")
+
+    def set_auto_tokenizer(self, auto_tokenizer):
+        """Attach a transformers AutoTokenizer for chat template support."""
+        self._auto_tokenizer = auto_tokenizer
+
+    def render_for_completion(self, conversation):
+        """
+        Render a conversation for completion using HF's apply_chat_template.
+        Mirrors RustBPETokenizer.render_for_completion but uses the model's
+        native chat format (e.g. LLaMA 2 [INST], LLaMA 3 header tokens).
+        """
+        assert self._auto_tokenizer is not None, (
+            "render_for_completion requires a transformers AutoTokenizer. "
+            "Call set_auto_tokenizer() first."
+        )
+        conversation = copy.deepcopy(conversation)
+        messages = conversation["messages"]
+        # Pop the last assistant message (same logic as RustBPETokenizer)
+        assert messages[-1]["role"] == "assistant", "Last message must be from the Assistant"
+        messages.pop()
+        # Flatten any structured content (list-of-parts) to plain text
+        # HF chat models don't understand nanollama's tool-call part format
+        for msg in messages:
+            if isinstance(msg["content"], list):
+                msg["content"] = "".join(part["text"] for part in msg["content"])
+        # Use apply_chat_template with add_generation_prompt=True
+        ids = self._auto_tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+        )
+        return ids
 
 # -----------------------------------------------------------------------------
 # Tokenizer based on rustbpe + tiktoken combo
