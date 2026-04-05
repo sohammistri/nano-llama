@@ -1,5 +1,5 @@
 """
-Model registry for nanochat architectures.
+Model registry for nanollama architectures.
 
 Each architecture registers itself via register_model(arch, config_cls, model_cls).
 Use build_model_from_config(arch, config_kwargs) to construct models from checkpoint metadata.
@@ -23,4 +23,4 @@ def build_model_from_config(arch, config_kwargs):
 
 
 # Import model modules to trigger registration
-from nanochat.models.gpt import GPT, GPTConfig  # noqa: F401, E402
+from nanollama.models.gpt import GPT, GPTConfig  # noqa: F401, E402

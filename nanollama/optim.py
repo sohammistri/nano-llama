@@ -71,7 +71,7 @@ NorMuon variance reduction: per-neuron/column adaptive learning rate that normal
 update scales after orthogonalization (Muon's output has non-uniform scales across neurons).
 https://arxiv.org/pdf/2510.05491
 
-Some of the changes in nanochat implementation:
+Some of the changes in nanollama implementation:
 - Uses a simpler, more general approach to parameter grouping and stacking
 - Uses a single fused kernel for the momentum -> polar_express -> variance_reduction -> update step
 - Makes no assumptions about model architecture (e.g. that attention weights are fused into QKVO format)

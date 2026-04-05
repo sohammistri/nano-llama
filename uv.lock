@@ -1059,7 +1059,7 @@ wheels = [
 ]
 
 [[package]]
-name = "muon"
+name = "nano-llama"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

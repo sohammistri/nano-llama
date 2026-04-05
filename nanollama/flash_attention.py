@@ -5,7 +5,7 @@ Exports `flash_attn` module that matches the FA3 API exactly, but falls back
 to PyTorch SDPA on non-Hopper GPUs (including Blackwell), MPS, and CPU.
 
 Usage (drop-in replacement for FA3):
-    from nanochat.flash_attention import flash_attn
+    from nanollama.flash_attention import flash_attn
 
     # Training (no KV cache)
     y = flash_attn.flash_attn_func(q, k, v, causal=True, window_size=window_size)
@@ -54,7 +54,7 @@ def _resolve_use_fa3():
         return False
     if HAS_FA3:
         # FA3 Hopper kernels only support bf16 and fp8; fp16/fp32 must use SDPA fallback
-        from nanochat.common import COMPUTE_DTYPE
+        from nanollama.common import COMPUTE_DTYPE
         if COMPUTE_DTYPE == torch.bfloat16:
             return True
         return False

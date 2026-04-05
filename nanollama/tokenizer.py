@@ -36,17 +36,32 @@ from tokenizers import pre_tokenizers, decoders, Regex
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 
+import re
+
+# Maps regex patterns (matched against lowercased model path) to BOS token strings.
+# Listed in priority order — first match wins.
+_BOS_TOKEN_MAP = [
+    (r"llama-?3|meta-llama-3",   "<|begin_of_text|>"),  # LLama 3.x
+    (r"llama-?2|llama-?1",       "<s>"),                  # LLama 1/2 (SentencePiece)
+    (r"gpt2|gpt-2",              "<|endoftext|>"),         # GPT-2
+]
+# Fallback order when model name gives no hint
+_BOS_CANDIDATES = ["<|bos|>", "<|endoftext|>", "<|begin_of_text|>", "<s>"]
+
+
 class HuggingFaceTokenizer:
     """Light wrapper around HuggingFace Tokenizer for some utilities"""
 
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, model_hint: str = None):
         self.tokenizer = tokenizer
+        # Optional: original model path/name used to fast-path BOS token lookup
+        self.model_hint = model_hint
 
     @classmethod
     def from_pretrained(cls, hf_path):
         # init from a HuggingFace pretrained tokenizer (e.g. "gpt2")
         tokenizer = HFTokenizer.from_pretrained(hf_path)
-        return cls(tokenizer)
+        return cls(tokenizer, model_hint=hf_path)
 
     @classmethod
     def from_directory(cls, tokenizer_dir):
@@ -106,7 +121,7 @@ class HuggingFaceTokenizer:
     def _encode_one(self, text, prepend=None, append=None, num_threads=None):
         # encode a single string
         # prepend/append can be either a string of a special token or a token id directly.
-        # num_threads is ignored (only used by the nanochat Tokenizer for parallel encoding)
+        # num_threads is ignored (only used by the nanollama Tokenizer for parallel encoding)
         assert isinstance(text, str)
         ids = []
         if prepend is not None:
@@ -123,15 +138,21 @@ class HuggingFaceTokenizer:
         return self.tokenizer.token_to_id(text)
 
     def get_bos_token_id(self):
-        # Different HuggingFace models use different BOS tokens and there is little consistency
-        # 1) attempt to find a <|bos|> token
-        bos = self.encode_special("<|bos|>")
-        # 2) if that fails, attempt to find a <|endoftext|> token (e.g. GPT-2 models)
-        if bos is None:
-            bos = self.encode_special("<|endoftext|>")
-        # 3) if these fail, it's better to crash than to silently return None
-        assert bos is not None, "Failed to find BOS token in tokenizer"
-        return bos
+        # If we know the model name, use the lookup table to find the BOS token directly.
+        if self.model_hint:
+            hint_lower = self.model_hint.lower()
+            for pattern, token in _BOS_TOKEN_MAP:
+                if re.search(pattern, hint_lower):
+                    bos = self.encode_special(token)
+                    if bos is not None:
+                        return bos
+                    break  # pattern matched but token missing — fall through to candidates
+        # Fallback: try each candidate in order (covers nanollama-native and unknown models)
+        for token in _BOS_CANDIDATES:
+            bos = self.encode_special(token)
+            if bos is not None:
+                return bos
+        assert False, "Failed to find BOS token in tokenizer"
 
     def encode(self, text, *args, **kwargs):
         if isinstance(text, str):
@@ -385,10 +406,10 @@ class RustBPETokenizer:
         return ids
 
 # -----------------------------------------------------------------------------
-# nanochat-specific convenience functions
+# nanollama-specific convenience functions
 
 def get_tokenizer():
-    from nanochat.common import get_base_dir
+    from nanollama.common import get_base_dir
     base_dir = get_base_dir()
     tokenizer_dir = os.path.join(base_dir, "tokenizer")
     # return HuggingFaceTokenizer.from_directory(tokenizer_dir)
@@ -396,7 +417,7 @@ def get_tokenizer():
 
 def get_token_bytes(device="cpu"):
     import torch
-    from nanochat.common import get_base_dir
+    from nanollama.common import get_base_dir
     base_dir = get_base_dir()
     tokenizer_dir = os.path.join(base_dir, "tokenizer")
     token_bytes_path = os.path.join(tokenizer_dir, "token_bytes.pt")

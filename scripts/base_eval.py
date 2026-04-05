@@ -13,7 +13,7 @@ Examples:
     # Evaluate a HuggingFace model (e.g. GPT-2 124M) using 8 GPUs
     torchrun --nproc_per_node=8 -m scripts.base_eval --hf-path openai-community/gpt2
 
-    # Evaluate a nanochat model (e.g. d24) using 8 GPUs
+    # Evaluate a nanollama model (e.g. d24) using 8 GPUs
     torchrun --nproc_per_node=8 -m scripts.base_eval --model-tag d24 --device-batch-size=16
 
     # Quick/approximate evaluation using a single GPU
@@ -31,19 +31,19 @@ import tempfile
 import argparse
 import torch
 
-from nanochat.common import compute_init, compute_cleanup, print0, get_base_dir, autodetect_device_type, download_file_with_lock
-from nanochat.tokenizer import HuggingFaceTokenizer, get_token_bytes
-from nanochat.checkpoint_manager import load_model
-from nanochat.core_eval import evaluate_task
-from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit
-from nanochat.loss_eval import evaluate_bpb
-from nanochat.engine import Engine
+from nanollama.common import compute_init, compute_cleanup, print0, get_base_dir, autodetect_device_type, download_file_with_lock
+from nanollama.tokenizer import HuggingFaceTokenizer, get_token_bytes
+from nanollama.checkpoint_manager import load_model
+from nanollama.core_eval import evaluate_task
+from nanollama.dataloader import tokenizing_distributed_data_loader_bos_bestfit
+from nanollama.loss_eval import evaluate_bpb
+from nanollama.engine import Engine
 
 # -----------------------------------------------------------------------------
 # HuggingFace loading utilities
 
 class ModelWrapper:
-    """Lightweight wrapper to give HuggingFace models a nanochat-compatible interface."""
+    """Lightweight wrapper to give HuggingFace models a nanollama-compatible interface."""
     def __init__(self, model, max_seq_len=None):
         self.model = model
         self.max_seq_len = max_seq_len
@@ -52,12 +52,15 @@ class ModelWrapper:
         logits = self.model(input_ids).logits
         if targets is None:
             return logits
+        B, T, V = logits.shape
         loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)),
+            logits.view(-1, V),
             targets.view(-1),
             ignore_index=-1,
             reduction=loss_reduction
         )
+        if loss_reduction == 'none':
+            loss = loss.view(B, T)
         return loss
 
     def get_device(self):
@@ -68,10 +71,18 @@ def load_hf_model(hf_path: str, device):
     """Load a HuggingFace model and tokenizer."""
     print0(f"Loading HuggingFace model from: {hf_path}")
     from transformers import AutoModelForCausalLM
-    model = AutoModelForCausalLM.from_pretrained(hf_path)
-    model.to(device)
+    model = AutoModelForCausalLM.from_pretrained(
+        hf_path,
+        torch_dtype=torch.bfloat16,
+        device_map=device,
+    )
     model.eval()
-    max_seq_len = 1024 if "gpt2" in hf_path else None
+    # Set max_seq_len from model config, capped for eval workloads
+    if "gpt2" in hf_path:
+        max_seq_len = 1024
+    else:
+        max_seq_len = getattr(model.config, 'max_position_embeddings', 8192)
+        max_seq_len = min(max_seq_len, 8192)
     model = ModelWrapper(model, max_seq_len=max_seq_len)
     tokenizer = HuggingFaceTokenizer.from_pretrained(hf_path)
     return model, tokenizer
@@ -82,8 +93,11 @@ def get_hf_token_bytes(tokenizer, device="cpu"):
     vocab_size = tokenizer.tokenizer.get_vocab_size()
     token_bytes = torch.zeros(vocab_size, dtype=torch.int64, device=device)
     for token_id in range(vocab_size):
-        token_str = tokenizer.tokenizer.decode([token_id])
-        token_bytes[token_id] = len(token_str.encode('utf-8'))
+        try:
+            token_str = tokenizer.tokenizer.decode([token_id])
+            token_bytes[token_id] = len(token_str.encode('utf-8'))
+        except Exception:
+            token_bytes[token_id] = 0  # special/undecipherable tokens excluded from BPB
     return token_bytes
 
 # -----------------------------------------------------------------------------
@@ -179,7 +193,7 @@ def main():
     parser = argparse.ArgumentParser(description="Base model evaluation")
     parser.add_argument('--eval', type=str, default='core,bpb,sample', help='Comma-separated evaluations to run: core,bpb,sample (default: all)')
     parser.add_argument('--hf-path', type=str, default=None, help='HuggingFace model path (e.g. openai-community/gpt2-xl)')
-    parser.add_argument('--model-tag', type=str, default=None, help='nanochat model tag to identify the checkpoint directory')
+    parser.add_argument('--model-tag', type=str, default=None, help='nanollama model tag to identify the checkpoint directory')
     parser.add_argument('--step', type=int, default=None, help='Model step to load (default = last)')
     parser.add_argument('--max-per-task', type=int, default=-1, help='Max examples per CORE task (-1 = all)')
     parser.add_argument('--device-batch-size', type=int, default=32, help='Per-device batch size for BPB evaluation')
@@ -298,7 +312,7 @@ def main():
             print0(f"CORE metric: {core_results['core_metric']:.4f}")
 
     # --- Log to report ---
-    from nanochat.report import get_report
+    from nanollama.report import get_report
     report_data = [{"model": model_name}]
 
     if core_results:

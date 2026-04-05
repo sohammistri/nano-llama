@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nanochat.common import get_dist_info, print0, COMPUTE_DTYPE
-from nanochat.optim import MuonAdamW, DistMuonAdamW, PureAdamW
+from nanollama.common import get_dist_info, print0, COMPUTE_DTYPE
+from nanollama.optim import MuonAdamW, DistMuonAdamW, PureAdamW
 
 
 # ---------------------------------------------------------------------------

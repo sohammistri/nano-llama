@@ -23,9 +23,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nanochat.common import get_dist_info, print0, COMPUTE_DTYPE
-from nanochat.models.base import BaseLMConfig, BaseLM, Linear, norm, apply_rotary_emb
-from nanochat.flash_attention import flash_attn
+from nanollama.common import get_dist_info, print0, COMPUTE_DTYPE
+from nanollama.models.base import BaseLMConfig, BaseLM, Linear, norm, apply_rotary_emb
+from nanollama.flash_attention import flash_attn
 
 
 @dataclass
@@ -361,5 +361,5 @@ class GPT(BaseLM):
 
 
 # Register with model registry
-from nanochat.models import register_model
+from nanollama.models import register_model
 register_model("gpt", GPTConfig, GPT)

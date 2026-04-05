@@ -1,4 +1,4 @@
-"""Minimal FP8 training for nanochat — tensorwise dynamic scaling only.
+"""Minimal FP8 training for nanollama — tensorwise dynamic scaling only.
 
 Drop-in replacement for torchao's Float8Linear (~2000 lines) with ~150 lines.
 We only need the "tensorwise" recipe (one scalar scale per tensor), not the full
@@ -72,7 +72,7 @@ generates a different graph. Numerics are bitwise identical in eager mode.
 import torch
 import torch.nn as nn
 
-from nanochat.common import COMPUTE_DTYPE
+from nanollama.common import COMPUTE_DTYPE
 
 # Avoid division by zero when computing scale from an all-zeros tensor
 EPS = 1e-12

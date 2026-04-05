@@ -14,7 +14,7 @@ import requests
 import pyarrow.parquet as pq
 from multiprocessing import Pool
 
-from nanochat.common import get_base_dir
+from nanollama.common import get_base_dir
 
 # -----------------------------------------------------------------------------
 # The specifics of the current pretraining dataset
@@ -44,11 +44,11 @@ def list_parquet_files(data_dir=None, warn_on_legacy=False):
             print()
             print(f"  Could not find: {data_dir}")
             print()
-            print("  nanochat recently switched from FinewebEdu-100B to ClimbMix-400B.")
+            print("  nanollama recently switched from FinewebEdu-100B to ClimbMix-400B.")
             print("  Everyone who does `git pull` as of March 4, 2026 is expected to see this message.")
             print("  To upgrade to the new ClimbMix-400B dataset, run these two commands:")
             print()
-            print("    python -m nanochat.dataset -n 170     # download ~170 shards, enough for GPT-2, adjust as desired")
+            print("    python -m nanollama.dataset -n 170     # download ~170 shards, enough for GPT-2, adjust as desired")
             print("    python -m scripts.tok_train           # re-train tokenizer on new ClimbMix data")
             print()
             print("  For now, falling back to your old FinewebEdu-100B dataset...")

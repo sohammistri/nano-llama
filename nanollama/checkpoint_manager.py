@@ -8,10 +8,10 @@ import json
 import logging
 import torch
 
-from nanochat.common import get_base_dir
-from nanochat.models import build_model_from_config
-from nanochat.tokenizer import get_tokenizer
-from nanochat.common import setup_default_logging
+from nanollama.common import get_base_dir
+from nanollama.models import build_model_from_config
+from nanollama.tokenizer import get_tokenizer
+from nanollama.common import setup_default_logging
 
 # Set up logging
 setup_default_logging()
@@ -149,7 +149,7 @@ def find_last_step(checkpoint_dir):
     return last_step
 
 # -----------------------------------------------------------------------------
-# convenience functions that take into account nanochat's directory structure
+# convenience functions that take into account nanollama's directory structure
 
 def load_model_from_dir(checkpoints_dir, device, phase, model_tag=None, step=None):
     if model_tag is None:
