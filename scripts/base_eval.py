@@ -174,6 +174,17 @@ def main():
     # Distributed / precision setup
     device_type = autodetect_device_type() if args.device_type == '' else args.device_type
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
+
+    # Guard: device_map/quantize and torchrun are incompatible
+    if (args.device_map or args.quantize) and ddp:
+        raise RuntimeError(
+            "Cannot use --device-map or --quantize with torchrun (DDP). "
+            "Model parallelism shards one model across GPUs in a single process, "
+            "while DDP replicates the model across processes. Use:\n"
+            f"  python -m scripts.base_eval --hf-path {args.hf_path} --device-map auto"
+            + (f" --quantize {args.quantize}" if args.quantize else "")
+        )
+
     # Load model and tokenizer
     is_hf_model = args.hf_path is not None
     if is_hf_model:
