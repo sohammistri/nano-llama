@@ -75,7 +75,14 @@ for model in "${MODELS[@]}"; do
         echo "  [batch_size=$bs] running..."
 
         # Run eval; tee to log; capture python's exit code separately from tee's.
-        python -m scripts.base_eval \
+        # python -m scripts.base_eval \
+        #     --hf-path "$model" \
+        #     --eval core \
+        #     --device-batch-size="$bs" \
+        #     2>&1 | tee "$log_file"
+        # exit_code=${PIPESTATUS[0]}
+
+        torchrun --nproc_per_node=4 -m scripts.base_eval \
             --hf-path "$model" \
             --eval core \
             --device-batch-size="$bs" \

@@ -18,6 +18,12 @@ Examples:
 
     # Quick/approximate evaluation using a single GPU
     python -m scripts.base_eval --model-tag d24 --device-batch-size=16 --max-per-task=100 --split-tokens=524288
+
+    # Evaluate a large model (e.g. LLaMA-70B) using model parallelism across GPUs
+    python -m scripts.base_eval --hf-path meta-llama/Llama-3-70B --device-map auto --eval core
+
+    # Evaluate with 4-bit quantization to reduce memory (requires bitsandbytes)
+    python -m scripts.base_eval --hf-path meta-llama/Llama-3-70B --quantize 4bit --eval core
 """
 import os
 import csv
@@ -154,6 +160,8 @@ def main():
     parser.add_argument('--device-batch-size', type=int, default=32, help='Per-device batch size for BPB evaluation')
     parser.add_argument('--split-tokens', type=int, default=40*524288, help='Number of tokens to evaluate per split for BPB')
     parser.add_argument('--device-type', type=str, default='', help='cuda|cpu|mps (empty = autodetect)')
+    parser.add_argument('--device-map', type=str, default=None, help='HuggingFace device_map for model parallelism (e.g. "auto" for large models like LLaMA-70B)')
+    parser.add_argument('--quantize', type=str, default=None, choices=['4bit', '8bit'], help='Load HF model with bitsandbytes quantization (4bit or 8bit)')
     args = parser.parse_args()
 
     # Parse evaluation modes
@@ -169,7 +177,10 @@ def main():
     # Load model and tokenizer
     is_hf_model = args.hf_path is not None
     if is_hf_model:
-        model, tokenizer = load_hf_model(args.hf_path, device)
+        model, tokenizer = load_hf_model(args.hf_path, device, device_map=args.device_map, quantize=args.quantize)
+        if args.device_map or args.quantize:
+            # Model is sharded across GPUs; use its input device for tensors
+            device = model.get_device()
         sequence_len = model.max_seq_len or 1024
         token_bytes = get_hf_token_bytes(tokenizer, device=device)
         model_name = args.hf_path

@@ -37,19 +37,47 @@ class ModelWrapper:
         return self.model.generate(input_ids, **kwargs)
 
 
-def load_hf_model(hf_path: str, device):
+def load_hf_model(hf_path: str, device, device_map=None, quantize=None):
     """Load a HuggingFace model and tokenizer.
 
     Returns (ModelWrapper, HuggingFaceTokenizer) where the tokenizer has
     a transformers AutoTokenizer attached for chat template support.
+
+    When device_map is set (e.g. "auto"), the model is sharded across
+    multiple GPUs for large models that don't fit on a single device.
+
+    When quantize is set ("4bit" or "8bit"), the model is loaded with
+    bitsandbytes quantization. This implies device_map="auto".
     """
     print0(f"Loading HuggingFace model from: {hf_path}")
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    model = AutoModelForCausalLM.from_pretrained(
-        hf_path,
+
+    load_kwargs = dict(
         torch_dtype=torch.bfloat16,
-        device_map=device,
+        device_map=device_map or device,
     )
+
+    if quantize:
+        from transformers import BitsAndBytesConfig
+        # Quantization requires device_map
+        load_kwargs["device_map"] = device_map or "auto"
+        if quantize == "4bit":
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4",
+            )
+        elif quantize == "8bit":
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_8bit=True,
+            )
+        else:
+            raise ValueError(f"Unsupported quantize value: {quantize}. Use '4bit' or '8bit'.")
+        # Don't set torch_dtype when quantizing — the config handles precision
+        del load_kwargs["torch_dtype"]
+        print0(f"Using {quantize} quantization via bitsandbytes")
+
+    model = AutoModelForCausalLM.from_pretrained(hf_path, **load_kwargs)
     model.eval()
     # Set max_seq_len from model config, capped for eval workloads
     if "gpt2" in hf_path:
