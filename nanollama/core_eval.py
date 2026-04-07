@@ -164,9 +164,15 @@ def forward_model(model, input_ids):
     return losses, predictions
 
 
-@torch.no_grad()
-def evaluate_example(idx, model, tokenizer, data, device, task_meta):
-    """Evaluate a single example, return True if correct, False otherwise"""
+def prepare_example(idx, tokenizer, data, max_seq_len, task_meta):
+    """
+    Prepare sequences for a single example (no model forward).
+    Returns (tokens, start_idxs, end_idxs, gold) where:
+        tokens: list of token sequences (list of lists of ints)
+        start_idxs: list of ints (start of continuation/answer span)
+        end_idxs: list of ints (end of continuation/answer span)
+        gold: int (correct answer index for MC/schema, -1 for LM)
+    """
     item = data[idx]
     task_type = task_meta['task_type']
     num_fewshot = task_meta['num_fewshot']
@@ -195,13 +201,12 @@ def evaluate_example(idx, model, tokenizer, data, device, task_meta):
 
     # Some models can't forward sequences beyond a certain length (e.g. GPT-2)
     # In these cases, we have to truncate sequences to max length and adjust the indices
-    if hasattr(model, 'max_seq_len') and model.max_seq_len is not None:
-        max_tokens = model.max_seq_len
+    if max_seq_len is not None:
         new_tokens, new_start_idxs, new_end_idxs = [], [], []
         for t, s, e in zip(tokens, start_idxs, end_idxs):
-            if len(t) > max_tokens:
-                num_to_crop = len(t) - max_tokens
-                new_tokens.append(t[-max_tokens:]) # take the last max_tokens tokens
+            if len(t) > max_seq_len:
+                num_to_crop = len(t) - max_seq_len
+                new_tokens.append(t[-max_seq_len:]) # take the last max_seq_len tokens
                 new_start_idxs.append(s - num_to_crop) # shift the indices down
                 new_end_idxs.append(e - num_to_crop)
                 assert s - num_to_crop >= 0, "this should never happen right?"
@@ -212,15 +217,16 @@ def evaluate_example(idx, model, tokenizer, data, device, task_meta):
                 new_end_idxs.append(e)
         tokens, start_idxs, end_idxs = new_tokens, new_start_idxs, new_end_idxs
 
-    # Stack up all the sequences into a batch
-    pad_token_id = tokenizer.get_bos_token_id() # use BOS as pad token is ok
-    input_ids = stack_sequences(tokens, pad_token_id)
-    input_ids = input_ids.to(device)
+    gold = item.get('gold', -1)
+    return tokens, start_idxs, end_idxs, gold
 
-    # Forward the model, get the autoregressive loss and argmax prediction at each token
-    losses, predictions = forward_model(model, input_ids)
 
-    # See if the losses/predictions come out correctly
+def score_example(losses, predictions, input_ids, start_idxs, end_idxs, gold, task_type):
+    """
+    Score a single example from (possibly batched) model output.
+    losses/predictions/input_ids are the slice for this example's sequences.
+    Returns True if the model got it correct, False otherwise.
+    """
     if task_type == 'language_modeling':
         # language modeling task is currently always batch size 1
         si = start_idxs[0]
@@ -234,29 +240,102 @@ def evaluate_example(idx, model, tokenizer, data, device, task_meta):
         mean_losses = [losses[i, si-1:ei-1].mean().item()
                         for i, (si, ei) in enumerate(zip(start_idxs, end_idxs))]
         pred_idx = mean_losses.index(min(mean_losses))
-        is_correct = pred_idx == item['gold']
+        is_correct = pred_idx == gold
     else:
         raise ValueError(f"Unsupported task type: {task_type}")
-
     return is_correct
 
 
-def evaluate_task(model, tokenizer, data, device, task_meta):
+@torch.no_grad()
+def evaluate_example(idx, model, tokenizer, data, device, task_meta):
+    """Evaluate a single example, return True if correct, False otherwise"""
+    max_seq_len = model.max_seq_len if hasattr(model, 'max_seq_len') else None
+    tokens, start_idxs, end_idxs, gold = prepare_example(idx, tokenizer, data, max_seq_len, task_meta)
+
+    pad_token_id = tokenizer.get_bos_token_id()
+    input_ids = stack_sequences(tokens, pad_token_id)
+    input_ids = input_ids.to(device)
+    losses, predictions = forward_model(model, input_ids)
+
+    return score_example(losses, predictions, input_ids, start_idxs, end_idxs, gold, task_meta['task_type'])
+
+
+def evaluate_task(model, tokenizer, data, device, task_meta, eval_batch_size=32):
     """
-    This function is responsible for evaluating one task across many examples.
-    It also handles dispatch to all processes if the script is run with torchrun.
+    Evaluate one task across many examples, batching multiple examples per forward pass.
+    eval_batch_size caps the total number of sequences per forward pass (not examples),
+    since MC/schema examples expand to N sequences each.
+    Also handles dispatch to all processes if the script is run with torchrun.
     """
     rank = dist.get_rank() if dist.is_initialized() else 0
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     correct = torch.zeros(len(data), dtype=torch.float32, device=device)
-    # stride the examples to each rank
-    for idx in range(rank, len(data), world_size):
-        is_correct = evaluate_example(idx, model, tokenizer, data, device, task_meta)
-        correct[idx] = float(is_correct)
-    # sync results across all the processes if running distributed
+    pad_token_id = tokenizer.get_bos_token_id()
+    max_seq_len = model.max_seq_len if hasattr(model, 'max_seq_len') else None
+    task_type = task_meta['task_type']
+
+    # Collect indices assigned to this rank
+    my_indices = list(range(rank, len(data), world_size))
+
+    # Buffer for batching: list of (idx, tokens, start_idxs, end_idxs, gold)
+    buffer = []
+    buffer_seq_count = 0
+
+    def flush_buffer():
+        nonlocal buffer, buffer_seq_count
+        if not buffer:
+            return
+
+        # Flatten all sequences from buffered examples into one batch
+        all_tokens = []
+        example_boundaries = []  # (start_row, end_row) in the flattened batch
+        row = 0
+        for (idx, tokens, start_idxs, end_idxs, gold) in buffer:
+            n = len(tokens)
+            all_tokens.extend(tokens)
+            example_boundaries.append((row, row + n))
+            row += n
+
+        # Stack, pad, and forward
+        input_ids = stack_sequences(all_tokens, pad_token_id).to(device)
+        losses, predictions = forward_model(model, input_ids)
+
+        # Score each example using its slice of the output
+        for i, (idx, tokens, start_idxs, end_idxs, gold) in enumerate(buffer):
+            r_start, r_end = example_boundaries[i]
+            is_correct = score_example(
+                losses[r_start:r_end],
+                predictions[r_start:r_end],
+                input_ids[r_start:r_end],
+                start_idxs, end_idxs, gold, task_type
+            )
+            correct[idx] = float(is_correct)
+
+        buffer = []
+        buffer_seq_count = 0
+
+    # Prepare and batch examples
+    for idx in my_indices:
+        tokens, start_idxs, end_idxs, gold = prepare_example(
+            idx, tokenizer, data, max_seq_len, task_meta
+        )
+        num_seqs = len(tokens)
+
+        # Flush if adding this example would exceed the batch size
+        # (always add to an empty buffer even if it exceeds, to handle large examples)
+        if buffer_seq_count + num_seqs > eval_batch_size and buffer:
+            flush_buffer()
+
+        buffer.append((idx, tokens, start_idxs, end_idxs, gold))
+        buffer_seq_count += num_seqs
+
+    # Flush remaining examples
+    flush_buffer()
+
+    # Sync results across all the processes if running distributed
     if world_size > 1:
         dist.barrier()
         dist.all_reduce(correct, op=dist.ReduceOp.SUM)
-    # compute the mean
+    # Compute the mean
     mean_correct = correct.mean().item()
     return mean_correct
