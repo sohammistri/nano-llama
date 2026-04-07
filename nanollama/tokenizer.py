@@ -43,10 +43,11 @@ import re
 _BOS_TOKEN_MAP = [
     (r"llama-?3|meta-llama-3",   "<|begin_of_text|>"),  # LLama 3.x
     (r"llama-?2|llama-?1",       "<s>"),                  # LLama 1/2 (SentencePiece)
+    (r"gemma",                   "<bos>"),                 # Gemma 1/2/3
     (r"gpt2|gpt-2",              "<|endoftext|>"),         # GPT-2
 ]
 # Fallback order when model name gives no hint
-_BOS_CANDIDATES = ["<|bos|>", "<|endoftext|>", "<|begin_of_text|>", "<s>"]
+_BOS_CANDIDATES = ["<|bos|>", "<bos>", "<|endoftext|>", "<|begin_of_text|>", "<s>"]
 
 
 class HuggingFaceTokenizer:
