@@ -18,9 +18,9 @@ if __name__ == "__main__":
     parser.add_argument('-m', '--model', type=str, required=True,
                         help="OpenRouter model name (e.g. meta-llama/llama-3.2-3b-instruct)")
     parser.add_argument('-a', '--task-name', type=str, default="GSM8K",
-                        help="Task name (currently: GSM8K, MATH500, GPQA_DIAMOND)")
-    parser.add_argument('--mode', type=str, default="0-shot-cot",
-                        help="Prompting mode for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot)")
+                        help="Task name (GSM8K, MATH500, GPQA_DIAMOND, ALL)")
+    parser.add_argument('--gpqa-mode', type=str, default="0-shot-cot",
+                        help="Prompting mode for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot, ALL)")
     parser.add_argument('-t', '--temperature', type=float, default=0.0,
                         help="Sampling temperature (default: 0.0)")
     parser.add_argument('-x', '--max-problems', type=int, default=None,
@@ -38,46 +38,58 @@ if __name__ == "__main__":
         'MATH500': MATH500OpenRouter,
         'GPQA_DIAMOND': GPQADiamondOpenRouter,
     }
-    assert args.task_name in task_map, f"Unknown task: {args.task_name}. Available: {list(task_map.keys())}"
+    gpqa_modes = ['0-shot', '0-shot-cot', 'few-shot', 'few-shot-cot']
+    task_names = list(task_map.keys()) if args.task_name == 'ALL' else [args.task_name]
+    for tn in task_names:
+        assert tn in task_map, f"Unknown task: {tn}. Available: {list(task_map.keys())}"
 
-    log_dir = None
-    if args.log:
-        log_dir = os.path.join(".cache", "nanollama", args.task_name.lower())
-
-    task_kwargs = dict(
-        model=args.model,
-        temperature=args.temperature,
-        reasoning=args.reasoning,
-        log_dir=log_dir,
-    )
-    if args.task_name == 'GPQA_DIAMOND':
-        task_kwargs['mode'] = args.mode
-    task = task_map[args.task_name](**task_kwargs)
-
-    print(f"Model: {args.model}")
-    print(f"Task: {args.task_name}")
-    print(f"Temperature: {args.temperature}")
-    print(f"Reasoning: {args.reasoning}")
-    print(f"Workers: {args.workers}")
-    print(f"Logging: {args.log}")
-    print("=" * 50)
-
-    accuracy = task.run_eval(max_problems=args.max_problems, workers=args.workers)
-
-    # Save results
     results_dir = os.path.join(".cache", "nanollama", "results")
     os.makedirs(results_dir, exist_ok=True)
     model_slug = args.model.replace("/", "_")
-    results_path = os.path.join(results_dir, f"{model_slug}_{args.task_name.lower()}.json")
-    results = {
-        "model": args.model,
-        "task": args.task_name,
-        "temperature": args.temperature,
-        "reasoning": args.reasoning,
-        "max_problems": args.max_problems,
-        "accuracy": accuracy,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Results saved to: {results_path}")
+
+    for tn in task_names:
+        modes = gpqa_modes if (tn == 'GPQA_DIAMOND' and args.gpqa_mode == 'ALL') else [args.gpqa_mode]
+        for mode in modes:
+            log_dir = None
+            if args.log:
+                log_dir = os.path.join(".cache", "nanollama", tn.lower())
+
+            task_kwargs = dict(
+                model=args.model,
+                temperature=args.temperature,
+                reasoning=args.reasoning,
+                log_dir=log_dir,
+            )
+            if tn == 'GPQA_DIAMOND':
+                task_kwargs['mode'] = mode
+            task = task_map[tn](**task_kwargs)
+
+            print(f"Model: {args.model}")
+            print(f"Task: {tn}")
+            if tn == 'GPQA_DIAMOND':
+                print(f"GPQA Mode: {mode}")
+            print(f"Temperature: {args.temperature}")
+            print(f"Reasoning: {args.reasoning}")
+            print(f"Workers: {args.workers}")
+            print(f"Logging: {args.log}")
+            print("=" * 50)
+
+            accuracy = task.run_eval(max_problems=args.max_problems, workers=args.workers)
+
+            # Save results
+            suffix = f"_{mode}" if tn == 'GPQA_DIAMOND' else ""
+            results_path = os.path.join(results_dir, f"{model_slug}_{tn.lower()}{suffix}.json")
+            results = {
+                "model": args.model,
+                "task": tn,
+                "temperature": args.temperature,
+                "reasoning": args.reasoning,
+                "max_problems": args.max_problems,
+                "accuracy": accuracy,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            if tn == 'GPQA_DIAMOND':
+                results["gpqa_mode"] = mode
+            with open(results_path, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"Results saved to: {results_path}")
