@@ -1,0 +1,14 @@
+[project]
+name = "nano-llama-inference"
+version = "0.1.0"
+description = "TensorRT-LLM inference environment"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    "tensorrt-llm>=1.2.0",
+]
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = false
