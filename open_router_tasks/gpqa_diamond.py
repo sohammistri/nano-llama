@@ -4,14 +4,11 @@ Supports 4 prompting modes: 0-shot, 0-shot-cot, few-shot, few-shot-cot.
 Based on prompts from arXiv 2311.12022, Appendix A.3.1.
 """
 
-import os
 import json
 import re
 import random
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datasets import load_dataset
-from open_router_tasks.common import chat
+from open_router_tasks.common import chat, BaseOpenRouterTask
 from open_router_tasks.gpqa_diamond_prompt import (
     ZERO_SHOT_PROMPT,
     ZERO_SHOT_COT_PROMPT,
@@ -67,21 +64,18 @@ def _format_choices(choices):
 
 # --- Task class ---
 
-class GPQADiamondOpenRouter:
+class GPQADiamondOpenRouter(BaseOpenRouterTask):
 
     def __init__(self, model, mode="0-shot-cot", max_tokens=2**16, temperature=0.0,
                  reasoning=False, log_dir=None):
         assert mode in VALID_MODES, f"Invalid mode: {mode}. Choose from {VALID_MODES}"
-        self.model = model
+        super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, log_dir=log_dir)
         self.mode = mode
-        self.max_tokens = max_tokens
-        self.temperature = temperature
-        self.reasoning = reasoning
-        self.log_dir = log_dir
-        self._log_lock = threading.Lock()
-        self._log_file = None
 
         self.test_ds = load_dataset("Idavidrein/gpqa", "gpqa_diamond", split="train")
+
+    def _log_filename(self):
+        return f"{self.model.replace('/', '_')}_{self.mode}.jsonl"
 
     def _build_few_shot_messages(self, question_text, choices, is_cot):
         """Build few-shot messages with examples as user/assistant turns."""
@@ -147,13 +141,6 @@ class GPQADiamondOpenRouter:
             messages = self._build_few_shot_messages(question, choices, is_cot=True)
 
         return messages, correct_label
-
-    def _log_result(self, record):
-        if self._log_file is None:
-            return
-        with self._log_lock:
-            self._log_file.write(json.dumps(record) + "\n")
-            self._log_file.flush()
 
     def _eval_single(self, i):
         row = self.test_ds[i]
@@ -221,30 +208,3 @@ class GPQADiamondOpenRouter:
               f"(pred={pred_answer}, ref={correct_label})")
         print(SEP)
 
-    def run_eval(self, max_problems=None, workers=10):
-        num_problems = len(self.test_ds) if max_problems is None else min(len(self.test_ds), max_problems)
-        num_correct, total = 0, 0
-
-        if self.log_dir:
-            os.makedirs(self.log_dir, exist_ok=True)
-            log_path = os.path.join(self.log_dir, f"{self.model.replace('/', '_')}_{self.mode}.jsonl")
-            self._log_file = open(log_path, "w")
-            print(f"Logging to: {log_path}")
-
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(self._eval_single, i): i for i in range(num_problems)}
-            for future in as_completed(futures):
-                _, is_correct = future.result()
-                total += 1
-                num_correct += int(is_correct)
-                print(f"\r\033[K{num_correct}/{total} ({100*num_correct/total:.2f}%)", end="", flush=True)
-
-        if self._log_file:
-            self._log_file.close()
-            self._log_file = None
-
-        print()
-        print("=" * 50)
-        accuracy = num_correct / total if total > 0 else 0.0
-        print(f"Accuracy: {num_correct}/{total} ({100*accuracy:.2f}%)")
-        return accuracy

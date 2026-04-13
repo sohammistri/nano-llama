@@ -1,7 +1,9 @@
 import os
 import json
 import time
+import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
@@ -32,3 +34,69 @@ def chat(messages, model, max_tokens=512, temperature=0.0, reasoning=False, retr
         time.sleep(wait)
     response.raise_for_status()
     return response.json()
+
+
+class BaseOpenRouterTask:
+    """Base class for OpenRouter chat evaluation tasks.
+
+    Subclasses must:
+      - Set self.test_ds in __init__ (used by run_eval for len/indexing)
+      - Implement _eval_single(i) -> (i, is_correct)
+      - Implement debug_single(seed=None)
+      - Implement build_messages(row)
+      - Override _log_filename() if the default slug is insufficient
+    """
+
+    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
+        self.model = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.reasoning = reasoning
+        self.log_dir = log_dir
+        self._log_lock = threading.Lock()
+        self._log_file = None
+
+    def _log_filename(self):
+        """JSONL filename (no directory). Override in subclasses for task-specific suffixes."""
+        return f"{self.model.replace('/', '_')}.jsonl"
+
+    def _log_result(self, record):
+        if self._log_file is None:
+            return
+        with self._log_lock:
+            self._log_file.write(json.dumps(record) + "\n")
+            self._log_file.flush()
+
+    def _eval_single(self, i):
+        raise NotImplementedError
+
+    def debug_single(self, seed=None):
+        raise NotImplementedError
+
+    def run_eval(self, max_problems=None, workers=10):
+        num_problems = len(self.test_ds) if max_problems is None else min(len(self.test_ds), max_problems)
+        num_correct, total = 0, 0
+
+        if self.log_dir:
+            os.makedirs(self.log_dir, exist_ok=True)
+            log_path = os.path.join(self.log_dir, self._log_filename())
+            self._log_file = open(log_path, "w")
+            print(f"Logging to: {log_path}")
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(self._eval_single, i): i for i in range(num_problems)}
+            for future in as_completed(futures):
+                _, is_correct = future.result()
+                total += 1
+                num_correct += int(is_correct)
+                print(f"\r\033[K{num_correct}/{total} ({100*num_correct/total:.2f}%)", end="", flush=True)
+
+        if self._log_file:
+            self._log_file.close()
+            self._log_file = None
+
+        print()
+        print("=" * 50)
+        accuracy = num_correct / total if total > 0 else 0.0
+        print(f"Accuracy: {num_correct}/{total} ({100*accuracy:.2f}%)")
+        return accuracy

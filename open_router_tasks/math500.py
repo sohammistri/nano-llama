@@ -4,14 +4,11 @@ Supports n-shot prompting with canonical few-shot examples from Minerva paper.
 Answer normalization follows Section D.1 of arXiv 2206.14858.
 """
 
-import os
 import json
 import re
 import random
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datasets import load_dataset
-from open_router_tasks.common import chat
+from open_router_tasks.common import chat, BaseOpenRouterTask
 from open_router_tasks.math500_prompt import FEW_SHOT_EXAMPLES
 
 SYSTEM_PROMPT = "You are an expert at solving competition-level math problems."
@@ -98,17 +95,11 @@ def is_equiv(pred: str, ref: str) -> bool:
 
 # --- Task class ---
 
-class MATH500OpenRouter:
+class MATH500OpenRouter(BaseOpenRouterTask):
 
     def __init__(self, model, n_shot=4, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
-        self.model = model
+        super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, log_dir=log_dir)
         self.n_shot = n_shot
-        self.max_tokens = max_tokens
-        self.temperature = temperature
-        self.reasoning = reasoning
-        self.log_dir = log_dir
-        self._log_lock = threading.Lock()
-        self._log_file = None
 
         self.test_ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
 
@@ -117,6 +108,9 @@ class MATH500OpenRouter:
             print(f"Warning: MATH-500 only has {len(FEW_SHOT_EXAMPLES)} canonical few-shot examples, using {len(FEW_SHOT_EXAMPLES)} instead of {n_shot}")
         self.few_shot_examples = FEW_SHOT_EXAMPLES[:effective_n]
 
+    def _log_filename(self):
+        return f"{self.model.replace('/', '_')}_n{self.n_shot}.jsonl"
+
     def build_messages(self, question):
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for fs_problem, fs_solution in self.few_shot_examples:
@@ -124,13 +118,6 @@ class MATH500OpenRouter:
             messages.append({"role": "assistant", "content": f"Solution:\n{fs_solution}"})
         messages.append({"role": "user", "content": f"Problem:\n{question}\n\n{INSTRUCTION}"})
         return messages
-
-    def _log_result(self, record):
-        if self._log_file is None:
-            return
-        with self._log_lock:
-            self._log_file.write(json.dumps(record) + "\n")
-            self._log_file.flush()
 
     def _eval_single(self, i):
         row = self.test_ds[i]
@@ -201,30 +188,3 @@ class MATH500OpenRouter:
               f"(pred_norm={pred_norm}, ref_norm={normalize_final_answer(ref_answer)})")
         print(SEP)
 
-    def run_eval(self, max_problems=None, workers=10):
-        num_problems = len(self.test_ds) if max_problems is None else min(len(self.test_ds), max_problems)
-        num_correct, total = 0, 0
-
-        if self.log_dir:
-            os.makedirs(self.log_dir, exist_ok=True)
-            log_path = os.path.join(self.log_dir, f"{self.model.replace('/', '_')}_n{self.n_shot}.jsonl")
-            self._log_file = open(log_path, "w")
-            print(f"Logging to: {log_path}")
-
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(self._eval_single, i): i for i in range(num_problems)}
-            for future in as_completed(futures):
-                _, is_correct = future.result()
-                total += 1
-                num_correct += int(is_correct)
-                print(f"\r\033[K{num_correct}/{total} ({100*num_correct/total:.2f}%)", end="", flush=True)
-
-        if self._log_file:
-            self._log_file.close()
-            self._log_file = None
-
-        print()
-        print("=" * 50)
-        accuracy = num_correct / total if total > 0 else 0.0
-        print(f"maj@1: {num_correct}/{total} ({100*accuracy:.2f}%)")
-        return accuracy

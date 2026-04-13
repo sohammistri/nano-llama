@@ -12,13 +12,15 @@ from datetime import datetime
 from open_router_tasks.gsm8k import GSM8KOpenRouter
 from open_router_tasks.math500 import MATH500OpenRouter
 from open_router_tasks.gpqa_diamond import GPQADiamondOpenRouter
+from open_router_tasks.arc_challenge import ARCChallengeOpenRouter
+from open_router_tasks.mbppplus import MBPPPlusOpenRouter
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate models via OpenRouter API")
     parser.add_argument('-m', '--model', type=str, required=True,
                         help="OpenRouter model name (e.g. meta-llama/llama-3.2-3b-instruct)")
     parser.add_argument('-a', '--task-name', type=str, default="GSM8K",
-                        help="Task name (GSM8K, MATH500, GPQA_DIAMOND, ALL)")
+                        help="Task name (GSM8K, MATH500, GPQA_DIAMOND, ARC_CHALLENGE, MBPP_PLUS, ALL)")
     parser.add_argument('--gpqa-mode', type=str, default="0-shot-cot",
                         help="Prompting mode for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot, ALL)")
     parser.add_argument('-t', '--temperature', type=float, default=0.0,
@@ -43,6 +45,8 @@ if __name__ == "__main__":
         'GSM8K': GSM8KOpenRouter,
         'MATH500': MATH500OpenRouter,
         'GPQA_DIAMOND': GPQADiamondOpenRouter,
+        'ARC_CHALLENGE': ARCChallengeOpenRouter,
+        'MBPP_PLUS': MBPPPlusOpenRouter,
     }
     gpqa_modes = ['0-shot', '0-shot-cot', 'few-shot', 'few-shot-cot']
     task_names = list(task_map.keys()) if args.task_name == 'ALL' else [args.task_name]
