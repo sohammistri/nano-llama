@@ -14,7 +14,7 @@ Choices:
 (C) {choice_c}
 (D) {choice_d}
 
-Format your response as follows: "The correct answer is (insert answer here)"."""
+"""
 
 ZERO_SHOT_COT_PROMPT = """What is the correct answer to this question: {question}
 Choices:
@@ -22,18 +22,29 @@ Choices:
 (B) {choice_b}
 (C) {choice_c}
 (D) {choice_d}
+"""
+
+ZERO_SHOT_ANSWER_EXTRACTION = """Always conclude with:
+The best answer is ([the_answer_letter]).
+where the [the_answer_letter] is one of A, B, C or D. Remember to keep the answer letter within the paranthesis."""
+
+ZERO_SHOT_COT_EXTRACTION = """- For simple problems: Directly provide the answer with minimal explanation.
+- For complex problems: Use this step-by-step format:
+    ## Step 1: [Concise description]\n[Brief explanation]
+    ## Step 2: [Concise description]\n[Brief explanation] ....
+Regardless of the approach, always conclude with:
+The best answer is ([the_answer_letter]).
+where the [the_answer_letter] is one of A, B, C or D. Remember to keep the answer letter within the paranthesis.
 
 Let's think step by step:"""
-
-ZERO_SHOT_COT_EXTRACTION = """Based on the above, what is the single, most likely answer choice? Answer in the format "The correct answer is (insert answer here)"."""
 
 # --- Few-shot templates ---
 
 FEW_SHOT_PREAMBLE = "Here are some example questions from experts. An explanation is given before the final answer. Answer the final question yourself, giving your reasoning beforehand."
 
-FEW_SHOT_FINAL_INSTRUCTION_COT = 'Give step by step reasoning before you answer, and when you\'re ready to answer, please use the format "The correct answer is (insert answer here)":'
+FEW_SHOT_FINAL_INSTRUCTION_NO_COT = 'Give step by step reasoning before you answer.Always conclude with:\nThe best answer is ([the_answer_letter]).\nwhere the [the_answer_letter] is one of A, B, C or D. Remember to keep the answer letter within the paranthesis.'
 
-FEW_SHOT_FINAL_INSTRUCTION_NO_COT = 'Format your response as follows: "The correct answer is (insert answer here)".'
+FEW_SHOT_FINAL_INSTRUCTION_COT = ZERO_SHOT_COT_EXTRACTION
 
 # --- Few-shot CoT examples (verbatim from paper Appendix A.3.1) ---
 # Each tuple: (question_with_choices, reasoning_and_answer)

@@ -15,6 +15,7 @@ from open_router_tasks.common import chat
 from open_router_tasks.gpqa_diamond_prompt import (
     ZERO_SHOT_PROMPT,
     ZERO_SHOT_COT_PROMPT,
+    ZERO_SHOT_ANSWER_EXTRACTION,
     ZERO_SHOT_COT_EXTRACTION,
     FEW_SHOT_PREAMBLE,
     FEW_SHOT_COT_EXAMPLES,
@@ -30,7 +31,7 @@ LABELS = ["(A)", "(B)", "(C)", "(D)"]
 
 # --- Answer extraction ---
 
-ANSWER_RE = re.compile(r"correct answer is\s*\(?([A-D])\)?", re.IGNORECASE)
+ANSWER_RE = re.compile(r"best answer is\s*\(?([A-D])\)?", re.IGNORECASE)
 FALLBACK_RE = re.compile(r"\(([A-D])\)")
 
 
@@ -68,7 +69,7 @@ def _format_choices(choices):
 
 class GPQADiamondOpenRouter:
 
-    def __init__(self, model, mode="0-shot-cot", max_tokens=1024, temperature=0.0,
+    def __init__(self, model, mode="0-shot-cot", max_tokens=2**16, temperature=0.0,
                  reasoning=False, log_dir=None):
         assert mode in VALID_MODES, f"Invalid mode: {mode}. Choose from {VALID_MODES}"
         self.model = model
@@ -118,9 +119,10 @@ class GPQADiamondOpenRouter:
                 choice_c=choices[2].strip(),
                 choice_d=choices[3].strip(),
             )
+            full_prompt = prompt + "\n\n" + ZERO_SHOT_ANSWER_EXTRACTION
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": full_prompt},
             ]
 
         elif self.mode == "0-shot-cot":
@@ -180,6 +182,44 @@ class GPQADiamondOpenRouter:
             "raw_response": completion,
         })
         return i, is_correct
+
+    def debug_single(self, seed=None):
+        """Run on one random problem, printing payload, response, and grading."""
+        SEP = "=" * 80
+        i = random.Random(seed).randrange(len(self.test_ds))
+        row = self.test_ds[i]
+        messages, correct_label = self.build_messages(row)
+
+        # Re-derive choices for display (same deterministic shuffle)
+        choices, _ = _shuffle_choices(row)
+        choices_text = _format_choices(choices)
+
+        print(SEP)
+        print(f"DEBUG: GPQA_DIAMOND  |  Problem #{i} of {len(self.test_ds)}  "
+              f"[mode={self.mode}]")
+        print(f"Domain: {row.get('High-level domain', '')} / "
+              f"{row.get('Subdomain', '')}")
+        print(SEP)
+        print(f"\n[QUESTION]\n{row['Question']}")
+        print(f"\n[CHOICES]\n{choices_text}")
+        print(f"\n[GROUND TRUTH]  {correct_label}")
+        print(f"\n[PAYLOAD — {len(messages)} messages]")
+        print(json.dumps(messages, indent=2))
+
+        response = chat(messages, model=self.model, max_tokens=self.max_tokens,
+                        temperature=self.temperature, reasoning=self.reasoning)
+        print(f"\n[API RESPONSE]")
+        print(json.dumps(response, indent=2))
+
+        completion = response["choices"][0]["message"]["content"]
+        pred_answer = extract_answer(completion)
+        is_correct = (pred_answer is not None) and (pred_answer == correct_label)
+
+        print(f"\n[COMPLETION]\n{completion}")
+        print(f"\n[EXTRACTED ANSWER]  {pred_answer}")
+        print(f"\n[GRADING]  {'CORRECT' if is_correct else 'INCORRECT'}  "
+              f"(pred={pred_answer}, ref={correct_label})")
+        print(SEP)
 
     def run_eval(self, max_problems=None, workers=10):
         num_problems = len(self.test_ds) if max_problems is None else min(len(self.test_ds), max_problems)

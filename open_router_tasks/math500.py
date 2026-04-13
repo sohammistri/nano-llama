@@ -7,6 +7,7 @@ Answer normalization follows Section D.1 of arXiv 2206.14858.
 import os
 import json
 import re
+import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datasets import load_dataset
@@ -14,26 +15,29 @@ from open_router_tasks.common import chat
 from open_router_tasks.math500_prompt import FEW_SHOT_EXAMPLES
 
 SYSTEM_PROMPT = "You are an expert at solving competition-level math problems."
-INSTRUCTION = "Let's think over the problem step by step. At the end, write your answer in the format: Final Answer: The final answer is $ANSWER$. I hope it is correct."
+INSTRUCTION = """Let's think over the problem step by step. After all reasoninfg, at the end, write your answer in the format: "Final Answer: The final answer is $\\boxed{answer}$. I hope it is correct."\n\nWhere [answer] is just the final number or expression that solves the problem.
+"""
 
 # --- Answer extraction ---
 
+## Primary: matches $\boxed{X}$ (group 1) or bare $X$ (group 2) before "I hope"
 FINAL_ANSWER_RE = re.compile(
     r"[Ff]inal\s+[Aa]nswer.*?[Tt]he\s+final\s+answer\s+is\s*"
-    r"\$?(.*?)\$?"
+    r"\$(?:\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}|([^$\n]+))\$"
     r"\s*\.?\s*I\s+hope",
     re.DOTALL,
 )
+## Fallback: last \boxed{X} anywhere in the response
 BOXED_RE = re.compile(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}")
 
 
 def extract_answer(text):
     """Extract answer from model output. Tries 'Final Answer' pattern first, then \\boxed{}."""
-    # Try "Final Answer: The final answer is ..." pattern
     match = FINAL_ANSWER_RE.search(text)
     if match:
-        return match.group(1).strip()
-    # Fallback: last \boxed{...}
+        # group(1) = content inside \boxed{}, group(2) = bare $X$
+        return (match.group(1) or match.group(2)).strip()
+    # Fallback: last \boxed{...} in the full response
     matches = BOXED_RE.findall(text)
     if matches:
         return matches[-1].strip()
@@ -96,7 +100,7 @@ def is_equiv(pred: str, ref: str) -> bool:
 
 class MATH500OpenRouter:
 
-    def __init__(self, model, n_shot=4, max_tokens=512, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, n_shot=4, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
         self.model = model
         self.n_shot = n_shot
         self.max_tokens = max_tokens
@@ -159,6 +163,43 @@ class MATH500OpenRouter:
             "raw_response": completion,
         })
         return i, is_correct
+
+    def debug_single(self, seed=None):
+        """Run on one random problem, printing payload, response, and grading."""
+        SEP = "=" * 80
+        i = random.Random(seed).randrange(len(self.test_ds))
+        row = self.test_ds[i]
+        question = row["problem"]
+        ref_answer = row["answer"]
+        subject = row["subject"]
+        level = row["level"]
+        messages = self.build_messages(question)
+
+        print(SEP)
+        print(f"DEBUG: MATH500  |  Problem #{i} of {len(self.test_ds)}  "
+              f"[{subject}, Level {level}]")
+        print(SEP)
+        print(f"\n[QUESTION]\n{question}")
+        print(f"\n[GROUND TRUTH]\n{ref_answer}  (normalized: {normalize_final_answer(ref_answer)})")
+        print(f"\n[PAYLOAD — {len(messages)} messages]")
+        print(json.dumps(messages, indent=2))
+
+        response = chat(messages, model=self.model, max_tokens=self.max_tokens,
+                        temperature=self.temperature, reasoning=self.reasoning)
+        print(f"\n[API RESPONSE]")
+        print(json.dumps(response, indent=2))
+
+        completion = response["choices"][0]["message"]["content"]
+        pred_answer = extract_answer(completion)
+        is_correct = (pred_answer is not None) and is_equiv(pred_answer, ref_answer)
+        pred_norm = normalize_final_answer(pred_answer) if pred_answer else None
+
+        print(f"\n[COMPLETION]\n{completion}")
+        print(f"\n[EXTRACTED ANSWER]  {pred_answer}  "
+              f"(normalized: {pred_norm})")
+        print(f"\n[GRADING]  {'CORRECT' if is_correct else 'INCORRECT'}  "
+              f"(pred_norm={pred_norm}, ref_norm={normalize_final_answer(ref_answer)})")
+        print(SEP)
 
     def run_eval(self, max_problems=None, workers=10):
         num_problems = len(self.test_ds) if max_problems is None else min(len(self.test_ds), max_problems)

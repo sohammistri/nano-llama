@@ -23,6 +23,8 @@ if __name__ == "__main__":
                         help="Prompting mode for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot, ALL)")
     parser.add_argument('-t', '--temperature', type=float, default=0.0,
                         help="Sampling temperature (default: 0.0)")
+    parser.add_argument('--max-tokens', type=int, default=2**16,
+                        help="Max tokens for model response (default: 65536)")
     parser.add_argument('-x', '--max-problems', type=int, default=None,
                         help="Max problems to evaluate (default: all)")
     parser.add_argument('--reasoning', action='store_true', default=False,
@@ -31,6 +33,10 @@ if __name__ == "__main__":
                         help="Number of concurrent API workers (default: 10)")
     parser.add_argument('--log', action='store_true', default=False,
                         help="Log responses to .cache/nanollama/<task>/ as JSONL")
+    parser.add_argument('--debug', action='store_true', default=False,
+                        help="Debug mode: pick one random problem, print payload, response, and grading")
+    parser.add_argument('--debug-seed', type=int, default=None,
+                        help="Random seed for --debug problem selection (default: random)")
     args = parser.parse_args()
 
     task_map = {
@@ -56,6 +62,7 @@ if __name__ == "__main__":
 
             task_kwargs = dict(
                 model=args.model,
+                max_tokens=args.max_tokens,
                 temperature=args.temperature,
                 reasoning=args.reasoning,
                 log_dir=log_dir,
@@ -73,6 +80,10 @@ if __name__ == "__main__":
             print(f"Workers: {args.workers}")
             print(f"Logging: {args.log}")
             print("=" * 50)
+
+            if args.debug:
+                task.debug_single(seed=args.debug_seed)
+                continue
 
             accuracy = task.run_eval(max_problems=args.max_problems, workers=args.workers)
 

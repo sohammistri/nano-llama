@@ -26,7 +26,7 @@ def extract_answer(text):
 
 class GSM8KOpenRouter:
 
-    def __init__(self, model, n_shot=8, max_tokens=512, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, n_shot=8, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
         self.model = model
         self.n_shot = n_shot
         self.max_tokens = max_tokens
@@ -86,6 +86,38 @@ class GSM8KOpenRouter:
             "raw_response": completion,
         })
         return i, is_correct
+
+    def debug_single(self, seed=None):
+        """Run on one random problem, printing payload, response, and grading."""
+        SEP = "=" * 80
+        i = random.Random(seed).randrange(len(self.test_ds))
+        row = self.test_ds[i]
+        question = row['question']
+        ref_answer = extract_answer(row['answer'])
+        messages = self.build_messages(question)
+
+        print(SEP)
+        print(f"DEBUG: GSM8K  |  Problem #{i} of {len(self.test_ds)}")
+        print(SEP)
+        print(f"\n[QUESTION]\n{question}")
+        print(f"\n[GROUND TRUTH]\n{ref_answer}")
+        print(f"\n[PAYLOAD — {len(messages)} messages]")
+        print(json.dumps(messages, indent=2))
+
+        response = chat(messages, model=self.model, max_tokens=self.max_tokens,
+                        temperature=self.temperature, reasoning=self.reasoning)
+        print(f"\n[API RESPONSE]")
+        print(json.dumps(response, indent=2))
+
+        completion = response['choices'][0]['message']['content']
+        pred_answer = extract_answer(completion)
+        is_correct = (pred_answer is not None) and (pred_answer == ref_answer)
+
+        print(f"\n[COMPLETION]\n{completion}")
+        print(f"\n[EXTRACTED ANSWER]  {pred_answer}")
+        print(f"\n[GRADING]  {'CORRECT' if is_correct else 'INCORRECT'}  "
+              f"(pred={pred_answer}, ref={ref_answer})")
+        print(SEP)
 
     def run_eval(self, max_problems=None, workers=10):
         num_problems = len(self.test_ds) if max_problems is None else min(len(self.test_ds), max_problems)
