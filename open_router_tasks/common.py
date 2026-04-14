@@ -27,7 +27,8 @@ def chat(messages, model, max_tokens=2**16, temperature=0.0, reasoning=False, pr
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
             },
-            data=json.dumps(payload)
+            data=json.dumps(payload),
+            timeout=(10, 120),  # (connect, read) in seconds
         )
         if response.status_code != 429:
             break
@@ -79,6 +80,7 @@ class BaseOpenRouterTask:
                     max_tokens=current_max_tokens,
                     temperature=self.temperature,
                     reasoning=self.reasoning,
+                    provider=self.provider,
                 )
                 with self._token_lock:
                     self._consecutive_400s = 0
@@ -127,7 +129,12 @@ class BaseOpenRouterTask:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(self._eval_single, i): i for i in range(num_problems)}
             for future in as_completed(futures):
-                _, is_correct = future.result()
+                idx = futures[future]
+                try:
+                    _, is_correct = future.result(timeout=300)
+                except Exception as e:
+                    print(f"\nProblem {idx} failed: {e}")
+                    is_correct = False
                 total += 1
                 num_correct += int(is_correct)
                 print(f"\r\033[K{num_correct}/{total} ({100*num_correct/total:.2f}%)", end="", flush=True)
