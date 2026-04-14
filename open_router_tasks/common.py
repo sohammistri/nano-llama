@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
-def chat(messages, model, max_tokens=512, temperature=0.0, reasoning=False, retries=3):
+def chat(messages, model, max_tokens=4096, temperature=0.0, reasoning=False, retries=3):
     """Call OpenRouter chat completions API with retry on rate limit."""
     assert OPENROUTER_API_KEY, "Set OPENROUTER_API_KEY environment variable"
     payload = {
@@ -32,7 +32,11 @@ def chat(messages, model, max_tokens=512, temperature=0.0, reasoning=False, retr
         wait = 2 ** attempt
         print(f"Rate limited, retrying in {wait}s...")
         time.sleep(wait)
-    response.raise_for_status()
+    if not response.ok:
+        raise requests.HTTPError(
+            f"HTTP {response.status_code}: {response.text}",
+            response=response,
+        )
     return response.json()
 
 
@@ -47,7 +51,7 @@ class BaseOpenRouterTask:
       - Override _log_filename() if the default slug is insufficient
     """
 
-    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, max_tokens=4096, temperature=0.0, reasoning=False, log_dir=None):
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature

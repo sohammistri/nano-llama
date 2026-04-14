@@ -97,7 +97,7 @@ def is_equiv(pred: str, ref: str) -> bool:
 
 class MATH500OpenRouter(BaseOpenRouterTask):
 
-    def __init__(self, model, n_shot=4, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, n_shot=4, max_tokens=4096, temperature=0.0, reasoning=False, log_dir=None):
         super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, log_dir=log_dir)
         self.n_shot = n_shot
 

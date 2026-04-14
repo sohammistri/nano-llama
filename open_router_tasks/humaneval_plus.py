@@ -43,7 +43,7 @@ def _compose_code(generated_code, test_harness, entry_point):
 
 class HumanEvalPlusOpenRouter(BaseOpenRouterTask):
 
-    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, max_tokens=4096, temperature=0.0, reasoning=False, log_dir=None):
         super().__init__(model, max_tokens=max_tokens, temperature=temperature,
                          reasoning=reasoning, log_dir=log_dir)
         self.test_ds = load_dataset("evalplus/humanevalplus", split="test")
