@@ -97,8 +97,8 @@ def is_equiv(pred: str, ref: str) -> bool:
 
 class MATH500OpenRouter(BaseOpenRouterTask):
 
-    def __init__(self, model, n_shot=4, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
-        super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, log_dir=log_dir)
+    def __init__(self, model, n_shot=4, max_tokens=2**16, temperature=0.0, reasoning=False, provider=None, log_dir=None):
+        super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, provider=provider, log_dir=log_dir)
         self.n_shot = n_shot
 
         self.test_ds = load_dataset("HuggingFaceH4/MATH-500", split="test")

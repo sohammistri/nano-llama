@@ -47,9 +47,9 @@ def _compose_code(test_imports, generated_code, test_harness):
 
 class MBPPPlusOpenRouter(BaseOpenRouterTask):
 
-    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, provider=None, log_dir=None):
         super().__init__(model, max_tokens=max_tokens, temperature=temperature,
-                         reasoning=reasoning, log_dir=log_dir)
+                         reasoning=reasoning, provider=provider, log_dir=log_dir)
         self.test_ds = load_dataset("evalplus/mbppplus", split="test")
 
     def _log_filename(self):

@@ -32,6 +32,8 @@ if __name__ == "__main__":
                         help="Max problems to evaluate (default: all)")
     parser.add_argument('--reasoning', action='store_true', default=False,
                         help="Enable reasoning mode for supported models")
+    parser.add_argument('--provider', type=str, default=None,
+                        help="Pin requests to a specific OpenRouter provider (e.g. Together, Fireworks, DeepInfra). Default: auto-router")
     parser.add_argument('-w', '--workers', type=int, default=10,
                         help="Number of concurrent API workers (default: 10)")
     parser.add_argument('--log', action='store_true', default=False,
@@ -74,6 +76,7 @@ if __name__ == "__main__":
                 max_tokens=args.max_tokens,
                 temperature=args.temperature,
                 reasoning=args.reasoning,
+                provider=args.provider,
                 log_dir=log_dir,
             )
             if tn == 'GPQA_DIAMOND':
@@ -86,6 +89,7 @@ if __name__ == "__main__":
                 print(f"GPQA Mode: {mode}")
             print(f"Temperature: {args.temperature}")
             print(f"Reasoning: {args.reasoning}")
+            print(f"Provider: {args.provider if args.provider else 'auto'}")
             print(f"Workers: {args.workers}")
             print(f"Logging: {args.log}")
             print("=" * 50)
@@ -104,6 +108,7 @@ if __name__ == "__main__":
                 "task": tn,
                 "temperature": args.temperature,
                 "reasoning": args.reasoning,
+                "provider": args.provider,
                 "max_problems": args.max_problems,
                 "accuracy": accuracy,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

@@ -67,9 +67,9 @@ def _format_choices(choices):
 class GPQADiamondOpenRouter(BaseOpenRouterTask):
 
     def __init__(self, model, mode="0-shot-cot", max_tokens=2**16, temperature=0.0,
-                 reasoning=False, log_dir=None):
+                 reasoning=False, provider=None, log_dir=None):
         assert mode in VALID_MODES, f"Invalid mode: {mode}. Choose from {VALID_MODES}"
-        super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, log_dir=log_dir)
+        super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, provider=provider, log_dir=log_dir)
         self.mode = mode
 
         self.test_ds = load_dataset("Idavidrein/gpqa", "gpqa_diamond", split="train")

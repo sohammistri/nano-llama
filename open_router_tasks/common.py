@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
-def chat(messages, model, max_tokens=2**16, temperature=0.0, reasoning=False, retries=3):
+def chat(messages, model, max_tokens=2**16, temperature=0.0, reasoning=False, provider=None, retries=3):
     """Call OpenRouter chat completions API with retry on rate limit."""
     assert OPENROUTER_API_KEY, "Set OPENROUTER_API_KEY environment variable"
     payload = {
@@ -18,6 +18,8 @@ def chat(messages, model, max_tokens=2**16, temperature=0.0, reasoning=False, re
     }
     if reasoning:
         payload["reasoning"] = {"enabled": True}
+    if provider:
+        payload["provider"] = {"order": [provider], "allow_fallbacks": False}
     for attempt in range(retries):
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -54,11 +56,12 @@ class BaseOpenRouterTask:
     # After this many consecutive 400s at the current max_tokens, halve it.
     _MAX_TOKENS_400_THRESHOLD = 10
 
-    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, provider=None, log_dir=None):
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.reasoning = reasoning
+        self.provider = provider
         self.log_dir = log_dir
         self._log_lock = threading.Lock()
         self._log_file = None
