@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
-def chat(messages, model, max_tokens=4096, temperature=0.0, reasoning=False, retries=3):
+def chat(messages, model, max_tokens=2**16, temperature=0.0, reasoning=False, retries=3):
     """Call OpenRouter chat completions API with retry on rate limit."""
     assert OPENROUTER_API_KEY, "Set OPENROUTER_API_KEY environment variable"
     payload = {
@@ -51,7 +51,10 @@ class BaseOpenRouterTask:
       - Override _log_filename() if the default slug is insufficient
     """
 
-    def __init__(self, model, max_tokens=4096, temperature=0.0, reasoning=False, log_dir=None):
+    # After this many consecutive 400s at the current max_tokens, halve it.
+    _MAX_TOKENS_400_THRESHOLD = 10
+
+    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -59,6 +62,37 @@ class BaseOpenRouterTask:
         self.log_dir = log_dir
         self._log_lock = threading.Lock()
         self._log_file = None
+        self._token_lock = threading.Lock()
+        self._consecutive_400s = 0
+
+    def _chat(self, messages):
+        """Call the API, halving max_tokens after >10 consecutive 400s."""
+        while True:
+            current_max_tokens = self.max_tokens
+            try:
+                result = chat(
+                    messages,
+                    model=self.model,
+                    max_tokens=current_max_tokens,
+                    temperature=self.temperature,
+                    reasoning=self.reasoning,
+                )
+                with self._token_lock:
+                    self._consecutive_400s = 0
+                return result
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 400:
+                    with self._token_lock:
+                        self._consecutive_400s += 1
+                        should_halve = self._consecutive_400s > self._MAX_TOKENS_400_THRESHOLD
+                        if should_halve:
+                            self.max_tokens = max(self.max_tokens // 2, 256)
+                            self._consecutive_400s = 0
+                    if should_halve:
+                        print(f"\nHalved max_tokens to {self.max_tokens} after "
+                              f"{self._MAX_TOKENS_400_THRESHOLD} consecutive 400s, retrying...")
+                        continue
+                raise
 
     def _log_filename(self):
         """JSONL filename (no directory). Override in subclasses for task-specific suffixes."""

@@ -26,8 +26,8 @@ if __name__ == "__main__":
                         help="Prompting mode(s) for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot, ALL)")
     parser.add_argument('-t', '--temperature', type=float, default=0.0,
                         help="Sampling temperature (default: 0.0)")
-    parser.add_argument('--max-tokens', type=int, default=4096,
-                        help="Max tokens for model response (default: 4096)")
+    parser.add_argument('--max-tokens', type=int, default=2**16,
+                        help="Max tokens for model response (default: 65536)")
     parser.add_argument('-x', '--max-problems', type=int, default=None,
                         help="Max problems to evaluate (default: all)")
     parser.add_argument('--reasoning', action='store_true', default=False,

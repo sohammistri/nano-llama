@@ -8,7 +8,7 @@ import json
 import re
 import random
 from datasets import load_dataset
-from open_router_tasks.common import chat, BaseOpenRouterTask
+from open_router_tasks.common import BaseOpenRouterTask
 from open_router_tasks.gpqa_diamond_prompt import (
     ZERO_SHOT_PROMPT,
     ZERO_SHOT_COT_PROMPT,
@@ -66,7 +66,7 @@ def _format_choices(choices):
 
 class GPQADiamondOpenRouter(BaseOpenRouterTask):
 
-    def __init__(self, model, mode="0-shot-cot", max_tokens=4096, temperature=0.0,
+    def __init__(self, model, mode="0-shot-cot", max_tokens=2**16, temperature=0.0,
                  reasoning=False, log_dir=None):
         assert mode in VALID_MODES, f"Invalid mode: {mode}. Choose from {VALID_MODES}"
         super().__init__(model, max_tokens=max_tokens, temperature=temperature, reasoning=reasoning, log_dir=log_dir)
@@ -146,12 +146,7 @@ class GPQADiamondOpenRouter(BaseOpenRouterTask):
         row = self.test_ds[i]
         messages, correct_label = self.build_messages(row)
         try:
-            response = chat(
-                messages, model=self.model,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                reasoning=self.reasoning,
-            )
+            response = self._chat(messages)
             completion = response["choices"][0]["message"]["content"]
         except Exception as e:
             print(f"\nError on problem {i}: {e}")
@@ -193,8 +188,7 @@ class GPQADiamondOpenRouter(BaseOpenRouterTask):
         print(f"\n[PAYLOAD — {len(messages)} messages]")
         print(json.dumps(messages, indent=2))
 
-        response = chat(messages, model=self.model, max_tokens=self.max_tokens,
-                        temperature=self.temperature, reasoning=self.reasoning)
+        response = self._chat(messages)
         print(f"\n[API RESPONSE]")
         print(json.dumps(response, indent=2))
 

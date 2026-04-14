@@ -8,7 +8,7 @@ import json
 import re
 import random
 from datasets import load_dataset
-from open_router_tasks.common import chat, BaseOpenRouterTask
+from open_router_tasks.common import BaseOpenRouterTask
 from nanollama.execution import execute_code
 
 EXEC_TIMEOUT = 60.0  # seconds; matches MBPP+ convention
@@ -43,7 +43,7 @@ def _compose_code(generated_code, test_harness, entry_point):
 
 class HumanEvalPlusOpenRouter(BaseOpenRouterTask):
 
-    def __init__(self, model, max_tokens=4096, temperature=0.0, reasoning=False, log_dir=None):
+    def __init__(self, model, max_tokens=2**16, temperature=0.0, reasoning=False, log_dir=None):
         super().__init__(model, max_tokens=max_tokens, temperature=temperature,
                          reasoning=reasoning, log_dir=log_dir)
         self.test_ds = load_dataset("evalplus/humanevalplus", split="test")
@@ -68,12 +68,7 @@ class HumanEvalPlusOpenRouter(BaseOpenRouterTask):
         messages = self.build_messages(row)
         completion = ""
         try:
-            response = chat(
-                messages, model=self.model,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                reasoning=self.reasoning,
-            )
+            response = self._chat(messages)
             completion = response["choices"][0]["message"]["content"]
         except Exception as e:
             print(f"\nError on problem {i} (task_id={row['task_id']}): {e}")
@@ -118,8 +113,7 @@ class HumanEvalPlusOpenRouter(BaseOpenRouterTask):
         print(f"\n[PAYLOAD -- {len(messages)} messages]")
         print(json.dumps(messages, indent=2))
 
-        response = chat(messages, model=self.model, max_tokens=self.max_tokens,
-                        temperature=self.temperature, reasoning=self.reasoning)
+        response = self._chat(messages)
         print(f"\n[API RESPONSE]")
         print(json.dumps(response, indent=2))
 
