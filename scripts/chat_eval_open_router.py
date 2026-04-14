@@ -14,15 +14,16 @@ from open_router_tasks.math500 import MATH500OpenRouter
 from open_router_tasks.gpqa_diamond import GPQADiamondOpenRouter
 from open_router_tasks.arc_challenge import ARCChallengeOpenRouter
 from open_router_tasks.mbppplus import MBPPPlusOpenRouter
+from open_router_tasks.humaneval_plus import HumanEvalPlusOpenRouter
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate models via OpenRouter API")
     parser.add_argument('-m', '--model', type=str, required=True,
                         help="OpenRouter model name (e.g. meta-llama/llama-3.2-3b-instruct)")
-    parser.add_argument('-a', '--task-name', type=str, default="GSM8K",
-                        help="Task name (GSM8K, MATH500, GPQA_DIAMOND, ARC_CHALLENGE, MBPP_PLUS, ALL)")
-    parser.add_argument('--gpqa-mode', type=str, default="0-shot-cot",
-                        help="Prompting mode for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot, ALL)")
+    parser.add_argument('-a', '--task-name', type=str, nargs='+', default=["GSM8K"],
+                        help="Task name(s) (GSM8K, MATH500, GPQA_DIAMOND, ARC_CHALLENGE, MBPP_PLUS, HUMANEVAL_PLUS, ALL)")
+    parser.add_argument('--gpqa-mode', type=str, nargs='+', default=["0-shot-cot"],
+                        help="Prompting mode(s) for GPQA_DIAMOND (0-shot, 0-shot-cot, few-shot, few-shot-cot, ALL)")
     parser.add_argument('-t', '--temperature', type=float, default=0.0,
                         help="Sampling temperature (default: 0.0)")
     parser.add_argument('--max-tokens', type=int, default=2**16,
@@ -47,9 +48,10 @@ if __name__ == "__main__":
         'GPQA_DIAMOND': GPQADiamondOpenRouter,
         'ARC_CHALLENGE': ARCChallengeOpenRouter,
         'MBPP_PLUS': MBPPPlusOpenRouter,
+        'HUMANEVAL_PLUS': HumanEvalPlusOpenRouter,
     }
     gpqa_modes = ['0-shot', '0-shot-cot', 'few-shot', 'few-shot-cot']
-    task_names = list(task_map.keys()) if args.task_name == 'ALL' else [args.task_name]
+    task_names = list(task_map.keys()) if 'ALL' in args.task_name else args.task_name
     for tn in task_names:
         assert tn in task_map, f"Unknown task: {tn}. Available: {list(task_map.keys())}"
 
@@ -58,7 +60,10 @@ if __name__ == "__main__":
     model_slug = args.model.replace("/", "_")
 
     for tn in task_names:
-        modes = gpqa_modes if (tn == 'GPQA_DIAMOND' and args.gpqa_mode == 'ALL') else [args.gpqa_mode]
+        if tn == 'GPQA_DIAMOND':
+            modes = gpqa_modes if 'ALL' in args.gpqa_mode else args.gpqa_mode
+        else:
+            modes = [None]
         for mode in modes:
             log_dir = None
             if args.log:
