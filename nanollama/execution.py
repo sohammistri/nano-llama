@@ -213,6 +213,14 @@ def reliability_guard(maximum_memory_bytes: Optional[int] = None):
 
 def _unsafe_execute(code: str, timeout: float, maximum_memory_bytes: Optional[int], result_dict):
     """Execute code in a subprocess with safety guards. Results are written to result_dict."""
+    # Pre-import numpy before reliability_guard nulls os.putenv.
+    # numpy.__init__ calls os.putenv("OMP_NUM_THREADS", "1") during import;
+    # caching it in sys.modules lets later imports reuse the loaded module.
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        pass
+
     with create_tempdir():
 
         # These system calls are needed when cleaning up tempdir.
