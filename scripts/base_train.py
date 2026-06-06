@@ -42,6 +42,7 @@ print_banner()
 parser = argparse.ArgumentParser(description="Pretrain base model")
 # Logging
 parser.add_argument("--run", type=str, default="dummy", help="wandb run name ('dummy' disables wandb logging)")
+parser.add_argument("--no-wandb", action="store_true", help="disable online wandb and save wandb-compatible offline logs under ~/.cache/nanollama/logs/<run>")
 # Runtime
 parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
 # FP8 training
@@ -103,8 +104,15 @@ else:
 print0(f"COMPUTE_DTYPE: {COMPUTE_DTYPE} ({COMPUTE_DTYPE_REASON})")
 
 # wandb logging init
-use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanollama", name=args.run, config=user_config)
+if not master_process or (args.run == "dummy" and not args.no_wandb):
+    wandb_run = DummyWandb()
+elif args.no_wandb:
+    local_wandb_dir = os.path.expanduser(os.path.join("~", ".cache", "nanollama", "logs", args.run))
+    os.makedirs(local_wandb_dir, exist_ok=True)
+    print0(f"WandB online logging disabled; saving offline run logs to {local_wandb_dir}")
+    wandb_run = wandb.init(project="nanollama", name=args.run, config=user_config, mode="offline", dir=local_wandb_dir)
+else:
+    wandb_run = wandb.init(project="nanollama", name=args.run, config=user_config)
 
 # Flash Attention status
 from nanollama.flash_attention import USE_FA3

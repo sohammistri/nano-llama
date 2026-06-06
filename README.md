@@ -76,6 +76,7 @@ nano-llama/
 │   ├── chat_eval.py        # Chat model evaluation (local / HF)
 │   ├── chat_eval_open_router.py  # Chat model evaluation via OpenRouter
 │   ├── download_hf_model.py
+│   ├── upload_logs_to_wandb.py
 │   ├── run_eval_sweep_hf.sh        # HF model sweep
 │   └── run_eval_sweep_open_router.sh  # OpenRouter model sweep
 │
@@ -261,10 +262,20 @@ To change which models are swept, edit the `MODELS=(...)` array at the top of th
 | Output | Location |
 |--------|----------|
 | Base eval CSVs | `$NANOLLAMA_BASE_DIR/base_eval/<model-slug>.csv` (default: `out/`) |
+| Base train offline W&B runs | `~/.cache/nanollama/logs/<run-name>/` (when `--no-wandb` is set) |
 | OpenRouter raw responses | `.cache/nanollama/<task>/` (when `--log` is set) |
 | OpenRouter result summaries | `.cache/nanollama/results/` |
 | HF sweep logs | `logs/eval_sweep/<model-slug>.log` |
 | OpenRouter sweep logs | `logs/eval_sweep_open_router/<model-slug>.log` |
+
+For offline base training logs that can be uploaded to W&B later, run with `--no-wandb` and a non-default run name:
+
+```bash
+uv run python -m scripts.base_train --run my-run --no-wandb
+uv run python -m scripts.upload_logs_to_wandb --run my-run
+```
+
+Use `--dry-run` to preview the underlying `wandb sync` command, `--all` to upload every local run under `~/.cache/nanollama/logs`, or pass explicit offline-run paths after transferring logs from another machine.
 
 ---
 
