@@ -24,3 +24,4 @@ def build_model_from_config(arch, config_kwargs):
 
 # Import model modules to trigger registration
 from nanollama.models.gpt import GPT, GPTConfig  # noqa: F401, E402
+from nanollama.models.gpt2_original import GPT2Original, GPT2OriginalConfig  # noqa: F401, E402

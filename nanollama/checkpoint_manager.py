@@ -27,12 +27,14 @@ def _patch_missing_config_keys(model_config_kwargs):
         model_config_kwargs["arch"] = "gpt"
         log0(f"Patching missing arch in model config to 'gpt'")
     # Old models were trained with full context (no sliding window)
-    if "window_pattern" not in model_config_kwargs:
+    if model_config_kwargs["arch"] == "gpt" and "window_pattern" not in model_config_kwargs:
         model_config_kwargs["window_pattern"] = "L"
         log0(f"Patching missing window_pattern in model config to 'L'")
 
 def _patch_missing_keys(model_data, model_config):
     """Add default values for new parameters that may be missing in old checkpoints."""
+    if model_config.arch != "gpt":
+        return
     n_layer = model_config.n_layer
     # resid_lambdas defaults to 1.0 (identity scaling)
     if "resid_lambdas" not in model_data:
@@ -96,7 +98,7 @@ def build_model(checkpoint_dir, step, device, phase):
         }
     # Hack: fix torch compile issue, which prepends all keys with _orig_mod.
     model_data = {k.removeprefix("_orig_mod."): v for k, v in model_data.items()}
-    model_config_kwargs = meta_data["model_config"]
+    model_config_kwargs = meta_data["model_config"].copy()
     _patch_missing_config_keys(model_config_kwargs)
     log0(f"Building model with config: {model_config_kwargs}")
     arch = model_config_kwargs.pop("arch", "gpt")
