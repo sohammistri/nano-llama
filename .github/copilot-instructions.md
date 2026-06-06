@@ -1,6 +1,6 @@
-# CLAUDE.md — Engineering Guidelines for nano-llama
+# Engineering Guidelines for nano-llama
 
-This file documents conventions and rules that Claude Code (and any external engineer) must follow when working in this repository.
+This file documents conventions and rules that Github Copilot (and any external engineer) must follow when working in this repository.
 
 ---
 
@@ -91,7 +91,7 @@ nano-llama/
 ```bash
 uv run python -m pytest
 ```
-
+Write all tests in the `./tests` directory, and follow the naming convention `test_*.py`. Tests should be focused on core library code in `nanollama/`, not on scripts or benchmarks.
 ---
 
 ## Adding a New OpenRouter Benchmark

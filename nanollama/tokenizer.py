@@ -259,7 +259,7 @@ class RustBPETokenizer:
         # tiktoken calls the special document delimiter token "<|endoftext|>"
         # yes this is confusing because this token is almost always PREPENDED to the beginning of the document
         # it most often is used to signal the start of a new sequence to the LLM during inference etc.
-        # so in nanoChat we always use "<|bos|>" short for "beginning of sequence", but historically it is often called "<|endoftext|>".
+        # so in NANOLLAMA we always use "<|bos|>" short for "beginning of sequence", but historically it is often called "<|endoftext|>".
         return cls(enc, "<|endoftext|>")
 
     def get_vocab_size(self):

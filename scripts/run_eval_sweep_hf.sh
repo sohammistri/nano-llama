@@ -14,8 +14,8 @@
 #   - Non-OOM failures also exit immediately (can't auto-recover).
 #
 # Logs: logs/eval_sweep/<model-slug>.log  (stdout + stderr per model)
-# CSVs: written by base_eval.py to $NANOCHAT_BASE_DIR/base_eval/<model-slug>.csv
-#        (NANOCHAT_BASE_DIR defaults to "out" if unset)
+# CSVs: written by base_eval.py to $NANOLLAMA_BASE_DIR/base_eval/<model-slug>.csv
+#        (NANOLLAMA_BASE_DIR defaults to "out" if unset)
 #
 # Usage:
 #   bash scripts/run_eval_sweep_hf.sh
@@ -122,6 +122,6 @@ done
 echo ""
 echo "=========================================="
 echo "Sweep complete. $total/$total models evaluated."
-echo "CSVs in: \${NANOCHAT_BASE_DIR:-out}/base_eval/"
+echo "CSVs in: \${NANOLLAMA_BASE_DIR:-out}/base_eval/"
 echo "Logs in: $LOG_DIR/"
 echo "=========================================="

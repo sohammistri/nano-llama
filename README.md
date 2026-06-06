@@ -124,7 +124,7 @@ uv run python -m scripts.base_eval \
   --quantize 4bit --eval core
 ```
 
-Results are written to `$NANOCHAT_BASE_DIR/base_eval/<model-slug>.csv` (defaults to `out/`).
+Results are written to `$NANOLLAMA_BASE_DIR/base_eval/<model-slug>.csv` (defaults to `out/`).
 
 ---
 
@@ -260,7 +260,7 @@ To change which models are swept, edit the `MODELS=(...)` array at the top of th
 
 | Output | Location |
 |--------|----------|
-| Base eval CSVs | `$NANOCHAT_BASE_DIR/base_eval/<model-slug>.csv` (default: `out/`) |
+| Base eval CSVs | `$NANOLLAMA_BASE_DIR/base_eval/<model-slug>.csv` (default: `out/`) |
 | OpenRouter raw responses | `.cache/nanollama/<task>/` (when `--log` is set) |
 | OpenRouter result summaries | `.cache/nanollama/results/` |
 | HF sweep logs | `logs/eval_sweep/<model-slug>.log` |

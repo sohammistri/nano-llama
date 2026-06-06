@@ -81,7 +81,7 @@ def get_system_info():
 
     # User and environment
     info['user'] = os.environ.get('USER', 'unknown')
-    info['nanollama_base_dir'] = os.environ.get('NANOCHAT_BASE_DIR', 'out')
+    info['nanollama_base_dir'] = os.environ.get('NANOLLAMA_BASE_DIR', 'out')
     info['working_dir'] = os.getcwd()
 
     return info

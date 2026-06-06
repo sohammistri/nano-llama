@@ -20,9 +20,9 @@ import torch
 import pyarrow.parquet as pq
 
 from nanollama.common import get_dist_info
-from nanollama.dataset import list_parquet_files
+from nanollama.dataset import dataset_data_dir, get_dataset_handle, get_text_column, list_parquet_files
 
-def _document_batches(split, resume_state_dict, tokenizer_batch_size):
+def _document_batches(split, resume_state_dict, tokenizer_batch_size, dataset_handle=None, text_column=None):
     """
     Infinite iterator over document batches (list of text strings) from parquet files.
 
@@ -31,9 +31,12 @@ def _document_batches(split, resume_state_dict, tokenizer_batch_size):
     and epoch counts how many times we've cycled through the dataset (starts at 1).
     """
     ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
+    dataset_handle = get_dataset_handle(dataset_handle)
+    data_dir = dataset_data_dir(dataset_handle)
+    text_column = get_text_column(text_column, data_dir=data_dir)
 
     warn_on_legacy = ddp_rank == 0 and split == "train" # rank 0 on train split will warn on legacy
-    parquet_paths = list_parquet_files(warn_on_legacy=warn_on_legacy)
+    parquet_paths = list_parquet_files(data_dir=data_dir, warn_on_legacy=warn_on_legacy, dataset_handle=dataset_handle)
     assert len(parquet_paths) != 0, "No dataset parquet files found, did you run dataset.py?"
     parquet_paths = parquet_paths[:-1] if split == "train" else parquet_paths[-1:]
 
@@ -62,7 +65,7 @@ def _document_batches(split, resume_state_dict, tokenizer_batch_size):
                 rg_idx = ddp_rank
             while rg_idx < pf.num_row_groups:
                 rg = pf.read_row_group(rg_idx)
-                batch = rg.column('text').to_pylist()
+                batch = rg.column(text_column).to_pylist()
                 for i in range(0, len(batch), tokenizer_batch_size):
                     yield batch[i:i+tokenizer_batch_size], (pq_idx, rg_idx, epoch)
                 rg_idx += ddp_world_size
@@ -75,6 +78,7 @@ def tokenizing_distributed_data_loader_with_state_bos_bestfit(
     tokenizer, B, T, split,
     tokenizer_threads=4, tokenizer_batch_size=128,
     device="cuda", resume_state_dict=None,
+    dataset_handle=None, text_column=None,
     buffer_size=1000
 ):
     """
@@ -96,7 +100,7 @@ def tokenizing_distributed_data_loader_with_state_bos_bestfit(
     assert split in ["train", "val"], "split must be 'train' or 'val'"
 
     row_capacity = T + 1
-    batches = _document_batches(split, resume_state_dict, tokenizer_batch_size)
+    batches = _document_batches(split, resume_state_dict, tokenizer_batch_size, dataset_handle=dataset_handle, text_column=text_column)
     bos_token = tokenizer.get_bos_token_id()
     doc_buffer = []
     pq_idx, rg_idx, epoch = 0, 0, 1
