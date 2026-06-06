@@ -14,10 +14,20 @@ from nanollama.dataset import parquets_iter_batched
 # Parse command line arguments
 
 parser = argparse.ArgumentParser(description='Train a BPE tokenizer')
+parser.add_argument(
+    '--dataset-handle', type=str, default=None,
+    help='HuggingFace dataset handle to train on (default: NANOLLAMA_DATASET_HANDLE or repo default)',
+)
+parser.add_argument(
+    '--text-column', type=str, default=None,
+    help='Parquet column containing document text (default: NANOLLAMA_TEXT_COLUMN, dataset metadata, or text)',
+)
 parser.add_argument('--max-chars', type=int, default=2_000_000_000, help='Maximum characters to train on (default: 2B)')
 parser.add_argument('--doc-cap', type=int, default=10_000, help='Maximum characters per document (default: 10,000)')
 parser.add_argument('--vocab-size', type=int, default=32768, help='Vocabulary size (default: 32768 = 2^15)')
 args = parser.parse_args()
+print(f"dataset_handle: {args.dataset_handle or '(env/default)'}")
+print(f"text_column: {args.text_column or '(env/metadata/default)'}")
 print(f"max_chars: {args.max_chars:,}")
 print(f"doc_cap: {args.doc_cap:,}")
 print(f"vocab_size: {args.vocab_size:,}")
@@ -32,7 +42,12 @@ def text_iterator():
     3) Break when we've seen args.max_chars characters
     """
     nchars = 0
-    for batch in parquets_iter_batched(split="train"):
+    train_batches = parquets_iter_batched(
+        split="train",
+        dataset_handle=args.dataset_handle,
+        text_column=args.text_column,
+    )
+    for batch in train_batches:
         for doc in batch:
             doc_text = doc
             if len(doc_text) > args.doc_cap:

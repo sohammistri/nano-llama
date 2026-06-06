@@ -7,6 +7,7 @@ import pytest
 
 
 FINEWEB_EDU_HANDLE = "HuggingFaceFW/fineweb-edu"
+SMOKE_MODEL_TAG = "smoke-tiny"
 
 
 def _smoke_enabled():
@@ -42,9 +43,11 @@ def _smoke_env(base_dir):
     env["NANOLLAMA_BASE_DIR"] = str(base_dir)
     env["NANOLLAMA_DATASET_HANDLE"] = FINEWEB_EDU_HANDLE
     env["NANOLLAMA_TEXT_COLUMN"] = "text"
+    env["TORCHDYNAMO_DISABLE"] = "1"
     return env
 
 
+# [CRITICAL] Exercises HuggingFace data download, tokenizer artifacts, and base training turnover.
 def test_fineweb_edu_download_train_and_eval_smoke(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     base_dir = tmp_path / "nanollama-cache"
@@ -103,3 +106,45 @@ def test_fineweb_edu_download_train_and_eval_smoke(tmp_path):
     assert "Comparison with GPT-4" in eval_result.stdout
     assert (base_dir / "report" / "tokenizer-training.md").exists()
     assert (base_dir / "report" / "tokenizer-evaluation.md").exists()
+
+    train_result = _run_command(
+        [
+            sys.executable,
+            "-m",
+            "scripts.base_train",
+            "--device-type",
+            "cpu",
+            "--depth",
+            "1",
+            "--head-dim",
+            "16",
+            "--max-seq-len",
+            "32",
+            "--window-pattern",
+            "L",
+            "--device-batch-size",
+            "1",
+            "--total-batch-size",
+            "32",
+            "--num-iterations",
+            "1",
+            "--eval-every",
+            "-1",
+            "--core-metric-every",
+            "-1",
+            "--sample-every",
+            "-1",
+            "--save-every",
+            "-1",
+            "--model-tag",
+            SMOKE_MODEL_TAG,
+        ],
+        env=env,
+        cwd=repo_root,
+    )
+
+    checkpoint_dir = base_dir / "base_checkpoints" / SMOKE_MODEL_TAG
+    assert "step 00000/00001" in train_result.stdout
+    assert (checkpoint_dir / "model_000001.pt").exists()
+    assert (checkpoint_dir / "meta_000001.json").exists()
+    assert (checkpoint_dir / "optim_000001_rank0.pt").exists()

@@ -2,8 +2,23 @@
 Evaluate compression ratio of the tokenizer.
 """
 
+import argparse
+
 from nanollama.tokenizer import get_tokenizer, RustBPETokenizer
 from nanollama.dataset import parquets_iter_batched
+
+parser = argparse.ArgumentParser(description="Evaluate compression ratio of the tokenizer")
+parser.add_argument(
+    '--dataset-handle', type=str, default=None,
+    help='HuggingFace dataset handle to evaluate on (default: NANOLLAMA_DATASET_HANDLE or repo default)',
+)
+parser.add_argument(
+    '--text-column', type=str, default=None,
+    help='Parquet column containing document text (default: NANOLLAMA_TEXT_COLUMN, dataset metadata, or text)',
+)
+args = parser.parse_args()
+print(f"dataset_handle: {args.dataset_handle or '(env/default)'}")
+print(f"text_column: {args.text_column or '(env/metadata/default)'}")
 
 # Random text I got from a random website this morning
 news_text = r"""
@@ -144,9 +159,17 @@ Photosynthesis is a photochemical energy transduction process in which light-har
 """.strip()
 
 # The tokenizer was trained on data from earlier shards, so it has seen this data
-train_docs = next(parquets_iter_batched(split="train"))
+train_docs = next(parquets_iter_batched(
+    split="train",
+    dataset_handle=args.dataset_handle,
+    text_column=args.text_column,
+))
 train_text = "\n".join(train_docs)
-val_docs = next(parquets_iter_batched(split="val"))
+val_docs = next(parquets_iter_batched(
+    split="val",
+    dataset_handle=args.dataset_handle,
+    text_column=args.text_column,
+))
 val_text = "\n".join(val_docs)
 
 all_text = [
@@ -261,5 +284,6 @@ for baseline_name in ["GPT-2", "GPT-4"]:
     lines.append("")
 report_markdown = "\n".join(lines)
 get_report().log(section="Tokenizer evaluation", data=[
+    vars(args),
     report_markdown,
 ])
